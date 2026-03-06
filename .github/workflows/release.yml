@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build QBE
-        run: make -C qbe qbe
+        run: make -C qbe
 
       - name: Build Lua
         run: make -C lua-5.4.7 linux
