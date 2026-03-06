@@ -1,22 +1,35 @@
-#!/bin/bash
+cat > install.sh << 'DONE'
+#!/bin/sh
 set -e
-sleep 1
-echo "🔥INSTALLING LPP: usr/local/bin YIPPEEE 🔥"
-sleep 1
-echo "lwk making a directory now"
-sudo mkdir -p /usr/local/bin
-sleep 1
-echo "if we being fr we lwk js copying stuff lmao"
 
-sudo cp bin/lpp /usr/local/bin/lpp
-sudo cp bin/qbe /usr/local/bin/qbe
-sleep 1
-echo "setting perms now"
-sudo chmod +x /usr/local/bin/lpp
-sudo chmod +x /usr/local/bin/qbe
-sleep 1
-sleep 1
-echo "------------------------------------------------"
-echo "Installation complete 🔥🔥"
-echo "lpp --help to verify fr" 
-echo "------------------------------------------------"
+LPP_REPO="yeicebear/Luapp"
+LPP_BIN="$HOME/.local/bin"
+LPP_LIB="$HOME/.local/lib/lpp"
+LPP_TMP="$(mktemp -d)"
+
+trap 'rm -rf "$LPP_TMP"' EXIT
+
+lpp_arch="$(uname -m)"
+case "$lpp_arch" in
+    x86_64)        lpp_arch="x86_64" ;;
+    aarch64|arm64) lpp_arch="arm64"  ;;
+    *) echo "unsupported arch: $lpp_arch" >&2; exit 1 ;;
+esac
+
+LPP_URL="https://github.com/${LPP_REPO}/releases/latest/download/lpp-linux-${lpp_arch}.tar.gz"
+
+echo "🔥INSTALLING LPP TO ~/.local/bin YIPPEEE 🔥"
+echo "lwk fetching the release..."
+curl -fsSL "$LPP_URL" -o "$LPP_TMP/lpp.tar.gz"
+tar -xzf "$LPP_TMP/lpp.tar.gz" -C "$LPP_TMP"
+
+echo "lwk making a directory now"
+mkdir -p "$LPP_BIN" "$LPP_LIB"
+
+echo "if we being fr we lwk js copying stuff lmao"
+install -m755 "$LPP_TMP/lpp"       "$LPP_BIN/lpp"
+install -m755 "$LPP_TMP/qbe"       "$LPP_BIN/qbe"
+install -m644 "$LPP_TMP/runtime.c" "$LPP_LIB/runtime.c"
+
+echo "lpp: done. try: lpp --help"
+DONE
