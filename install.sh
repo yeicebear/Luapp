@@ -33,3 +33,7 @@ install -m644 "$LPP_TMP/runtime.c" "$LPP_LIB/runtime.c"
 
 echo "lpp: done. try: lpp --help"
 DONE
+
+git add install.sh
+git commit -m "add the drip back"
+git push
