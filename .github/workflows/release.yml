@@ -5,18 +5,23 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install musl
+        run: sudo apt-get install -y musl-tools
       - name: Build QBE
         run: make -C qbe
       - name: Build Lua
-        run: make -C lua-5.4.7 linux
+        run: make -C lua-5.4.7 linux CC=musl-gcc
       - name: Build lpp
         run: |
-          gcc -o lpp src/main.luastatic.c src/runtime.c \
+          musl-gcc -static -o lpp src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm -ldl
       - name: Package
         run: |
