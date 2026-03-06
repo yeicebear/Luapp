@@ -1,0 +1,31 @@
+local a = 10
+local b = 5
+global g = 100
+
+local sum = a + b
+local product = a * b
+print sum
+print product
+
+local i = 0
+while i < 5 {
+    print i
+    i = i + 1
+}
+
+func factorial() {
+    local n = 5
+    local result = 1
+    while n > 1 {
+        result = result * n
+        n = n - 1
+    }
+    print result
+}
+
+func main() {
+    print sum
+    print product
+    factorial()
+    print g
+}

@@ -1,0 +1,19 @@
+cat > .gitignore << 'EOF'
+dist/bin/lpp
+dist/bin/qbe
+src/lpp
+
+lua-5.4.7/src/*.o
+lua-5.4.7/src/lua
+lua-5.4.7/src/luac
+
+qbe/obj/
+qbe/qbe
+
+*.ssa
+*.s
+*.out
+a.out
+
+.DS_Store
+EOF
