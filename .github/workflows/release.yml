@@ -42,10 +42,14 @@ jobs:
       - name: Build QBE
         run: make -C qbe
       - name: Build Lua
-        run: make -C lua-5.4.7 macosx
+        run: |
+          cd lua-5.4.7/src
+          clang -std=gnu99 -O2 -DLUA_COMPAT_5_3 -DLUA_USE_MACOSX -c *.c
+          rm -f lua.o luac.o
+          libtool -static -o liblua.a *.o
       - name: Build lpp
         run: |
-          gcc -o lpp src/main.luastatic.c src/runtime.c \
+          clang -o lpp src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm
       - name: Package
         run: |
