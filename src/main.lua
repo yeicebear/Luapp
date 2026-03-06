@@ -37,8 +37,42 @@ do
         if     argv[i] == "-o"     then lpp_outfile = argv[i+1]; i = i+2
         elseif argv[i] == "--run"  then lpp_do_run = true; i = i+1
         elseif argv[i] == "-r"     then lpp_do_run = true; i = i+1
+        elseif argv[i] == "--version" then
+            print("Lua++ 0.1.0 \n MIT")
+            print([[MIT License
+
+            Copyright (c) 2026 yeicebear
+
+            Permission is hereby granted, free of charge, to any person obtaining a copy
+            of this software and associated documentation files (the "Software"), to deal
+            in the Software without restriction, including without limitation the rights
+            to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+            copies of the Software, and to permit persons to whom the Software is
+            furnished to do so, subject to the following conditions:
+
+            The above copyright notice and this permission notice shall be included in all
+            copies or substantial portions of the Software.
+
+            THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+            IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+            FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+            AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+            LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+            OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+            SOFTWARE.
+            ]])
+            os.exit(0)
         elseif argv[i] == "--help" then
-            print("lpp — Lua++  |  usage: lpp <file.lpp> [-o output] [--run]")
+            print("lpp — Lua++")
+            print("a blazingly fast (no, seriously, it compiles to native machine code!) Lua/Go/Rust/C inspired language, by icebearunreal!")
+            print("")
+            print("usage:  lpp <file.lpp> [flags]")
+            print("")
+            print("  -o <name>    name the output binary")
+            print("  --run        compile and run")
+            print("  --version    print version")
+            print("  --help       you're looking at it")
+            print("")
             os.exit(0)
         else
             lpp_infile = argv[i]; i = i+1
