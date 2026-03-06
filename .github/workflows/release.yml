@@ -6,34 +6,50 @@ on:
       - 'v*'
 
 jobs:
-  build:
+  build-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Build QBE
         run: make -C qbe
-
       - name: Build Lua
         run: make -C lua-5.4.7 linux
-
       - name: Build lpp
         run: |
-          cd lua-5.4.7
-          make linux
-          cd ..
           gcc -o lpp src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm -ldl
-
       - name: Package
         run: |
           mkdir -p dist
           cp lpp dist/
-          cp qbe/qbe dist/
+          cp qbe/obj/qbe dist/
           cp src/runtime.c dist/
-          tar -czf dist/lpp-linux-x86_64.tar.gz -C dist lpp qbe runtime.c
-
+          tar -czf lpp-linux-x86_64.tar.gz -C dist lpp qbe runtime.c
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/lpp-linux-x86_64.tar.gz
+          files: lpp-linux-x86_64.tar.gz
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build QBE
+        run: make -C qbe
+      - name: Build Lua
+        run: make -C lua-5.4.7 macosx
+      - name: Build lpp
+        run: |
+          gcc -o lpp src/main.luastatic.c src/runtime.c \
+            -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp lpp dist/
+          cp qbe/obj/qbe dist/
+          cp src/runtime.c dist/
+          tar -czf lpp-darwin-arm64.tar.gz -C dist lpp qbe runtime.c
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: lpp-darwin-arm64.tar.gz
