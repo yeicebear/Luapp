@@ -12,19 +12,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build QBE
-        run: make -C qbe
+        run: make -C qbe qbe
 
       - name: Build Lua
-        run: |
-          cd lua-5.4.7
-          make linux
+        run: make -C lua-5.4.7 linux
 
       - name: Build lpp
         run: |
           cd lua-5.4.7
-          ./src/luac -o ../lpp.luac ../src/main.lua
-          gcc -o ../lpp ../src/main.luastatic.c ../src/runtime.c -I src -L src -llua -lm -ldl
+          make linux
           cd ..
+          gcc -o lpp src/main.luastatic.c src/runtime.c \
+            -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm -ldl
 
       - name: Package
         run: |
@@ -32,8 +31,7 @@ jobs:
           cp lpp dist/
           cp qbe/qbe dist/
           cp src/runtime.c dist/
-          cd dist
-          tar -czf lpp-linux-x86_64.tar.gz lpp qbe runtime.c
+          tar -czf dist/lpp-linux-x86_64.tar.gz -C dist lpp qbe runtime.c
 
       - name: Release
         uses: softprops/action-gh-release@v1
