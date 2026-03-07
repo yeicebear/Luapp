@@ -1,5 +1,5 @@
 # HOW TO INSTALL
-<small><small><small>`we'll be straight to the point this time`</small></small></small>
+<small><small><small><small><small>`we'll be straight to the point this time`</small></small></small></small></small>
 
 
 
