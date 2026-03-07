@@ -1,0 +1,35 @@
+// guess.lpp — number guessing game
+// shows off: extern, linkto, string literals, rand_int, input_int
+
+linkto "std"
+
+extern func rand_int(min: int, max: int): int
+extern func input_int(): int
+extern func sleep_ms(ms: int): int
+extern func print_str(s: str): int
+
+func main(): int {
+    print_str("=== number guesser ===")
+    print_str("i picked a number between 1 and 100. go.")
+
+    local secret: int = rand_int(1, 100)
+    local guess: int = 0
+    local tries: int = 0
+
+    while guess != secret {
+        print_str("your guess: ")
+        guess = input_int()
+        tries = tries + 1
+
+        if guess < secret {
+            print_str("too low")
+        }
+        if guess > secret {
+            print_str("too high")
+        }
+    }
+
+    print_str("got it!")
+    print(tries)
+    return 0
+}

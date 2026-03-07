@@ -8,9 +8,10 @@ local function lpp_tokenize(src)
     -- keywords that become their own token type instead of IDENT
     -- "print" is intentionally NOT here so it parses like a normal call
     local lpp_kwds = {
-        ["func"]=1, ["local"]=1, ["if"]=1, ["else"]=1,
-        ["while"]=1, ["return"]=1, ["break"]=1,
-        ["int"]=1, ["bool"]=1, ["true"]=1, ["false"]=1,
+        ["func"]=1,   ["local"]=1,  ["if"]=1,     ["else"]=1,
+        ["while"]=1,  ["return"]=1, ["break"]=1,
+        ["int"]=1,    ["bool"]=1,   ["true"]=1,   ["false"]=1,
+        ["extern"]=1, ["linkto"]=1,
     }
 
     local function lpp_pushtok(tag, v)
@@ -28,6 +29,16 @@ local function lpp_tokenize(src)
             while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos) ~= "\n" do
                 lpp_pos = lpp_pos+1
             end
+
+        elseif c == '"' then
+            -- string literal
+            lpp_pos = lpp_pos+1
+            local s = lpp_pos
+            while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos) ~= '"' do
+                lpp_pos = lpp_pos+1
+            end
+            lpp_pushtok("STRING", src:sub(s, lpp_pos-1))
+            lpp_pos = lpp_pos+1  -- eat closing "
 
         elseif c:match("%d") then
             local s = lpp_pos

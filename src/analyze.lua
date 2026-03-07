@@ -24,11 +24,19 @@ local function lpp_err(msg) error("lpp: " .. msg) end
 
 local lpp_known_fns  -- populated by lpp_analyze, read by lpp_chk_xpr
 
+-- builtins always available without declaration
+local lpp_builtins = {
+    print=1, print_str=1, print_int=1,
+    -- gamelib builtins (provided by gamelib.c)
+    rand_int=1, sleep_ms=1, time_ms=1, input_int=1,
+}
+
 local function lpp_chk_xpr(nd)
     if not nd then return end
     local k = nd.kind
 
     if k == "lit_int" then return
+    elseif k == "lit_str" then return
 
     elseif k == "var" then
         if not lpp_scope_lookup(nd.vname) then
@@ -44,9 +52,7 @@ local function lpp_chk_xpr(nd)
         lpp_chk_xpr(nd.x)
 
     elseif k == "call" then
-        if not lpp_known_fns[nd.fname]
-        and nd.fname ~= "print"
-        and nd.fname ~= "print_str" then
+        if not lpp_known_fns[nd.fname] and not lpp_builtins[nd.fname] then
             lpp_err("'"..nd.fname.."' — no such function")
         end
         for i=1,#nd.args do lpp_chk_xpr(nd.args[i]) end
@@ -98,6 +104,12 @@ local function lpp_analyze(prog)
     lpp_scopestack = {}  -- reset between runs
     lpp_known_fns = {}
 
+    -- register extern declarations as known functions
+    for i=1,#prog.externs do
+        lpp_known_fns[prog.externs[i].fname] = true
+    end
+
+    -- register all user-defined functions
     for i=1,#prog.funcs do
         local fn = prog.funcs[i]
         if not fn.fname or fn.fname == "" then lpp_err("unnamed function") end

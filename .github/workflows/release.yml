@@ -1,13 +1,10 @@
 name: Release
-
 on:
   push:
     tags:
       - 'v*'
-
 permissions:
   contents: write
-
 jobs:
   build-linux:
     runs-on: ubuntu-latest
@@ -21,6 +18,9 @@ jobs:
         run: make -C lua-5.4.7 linux CC=musl-gcc
       - name: Build lpp
         run: |
+          cd src
+          luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a
+          cd ..
           musl-gcc -static -o lpp src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm -ldl
       - name: Package
@@ -29,7 +29,9 @@ jobs:
           cp lpp dist/
           cp qbe/obj/qbe dist/
           cp src/runtime.c dist/
-          tar -czf lpp-linux-x86_64.tar.gz -C dist lpp qbe runtime.c
+          cp src/stdlib.c dist/
+          cp src/gamelib.c dist/
+          tar -czf lpp-linux-x86_64.tar.gz -C dist lpp qbe runtime.c stdlib.c gamelib.c
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
@@ -49,6 +51,9 @@ jobs:
           libtool -static -o liblua.a *.o
       - name: Build lpp
         run: |
+          cd src
+          luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a
+          cd ..
           clang -o lpp src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm
       - name: Package
@@ -57,7 +62,9 @@ jobs:
           cp lpp dist/
           cp qbe/obj/qbe dist/
           cp src/runtime.c dist/
-          tar -czf lpp-darwin-arm64.tar.gz -C dist lpp qbe runtime.c
+          cp src/stdlib.c dist/
+          cp src/gamelib.c dist/
+          tar -czf lpp-darwin-arm64.tar.gz -C dist lpp qbe runtime.c stdlib.c gamelib.c
       - name: Release
         uses: softprops/action-gh-release@v1
         with:

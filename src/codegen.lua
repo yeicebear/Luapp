@@ -7,6 +7,8 @@
 
 local lpp_nlabels = 0
 local lpp_ntemps  = 0
+local lpp_str_lits = {}   -- collect string literals for data section
+local lpp_nstrs   = 0
 
 local function lpp_mklbl(hint)
     lpp_nlabels = lpp_nlabels+1
@@ -19,6 +21,13 @@ local function lpp_mktmp(hint)
 end
 
 local function lpp_emit(buf, line) buf[#buf+1] = line end
+
+local function lpp_intern_str(s)
+    lpp_nstrs = lpp_nstrs+1
+    local lbl = "lpp_strlit"..lpp_nstrs
+    lpp_str_lits[#lpp_str_lits+1] = {lbl=lbl, val=s}
+    return lbl
+end
 
 -- AST binop tag -> QBE instruction
 local lpp_opmap = {
@@ -34,6 +43,11 @@ lpp_lower_xpr = function(buf, node, dest)
 
     if k == "lit_int" then
         lpp_emit(buf, string.format("    %%%s =w copy %d", dest, node.ival))
+
+    elseif k == "lit_str" then
+        -- intern the string, get a label, load its address as long
+        local lbl = lpp_intern_str(node.sval)
+        lpp_emit(buf, string.format("    %%%s =l copy $%s", dest, lbl))
 
     elseif k == "var" then
         lpp_emit(buf, string.format("    %%%s =w loadw %%%s_slot", dest, node.vname))
@@ -52,7 +66,6 @@ lpp_lower_xpr = function(buf, node, dest)
         local op = node.op
 
         if op == "AND" then
-            -- lhs false -> skip rhs, result=0. lhs true -> result=(rhs!=0)
             local lpp_spill = lpp_mktmp("andspill")
             local lpp_rhs_lbl = lpp_mklbl("and_rhs")
             local lpp_no_lbl  = lpp_mklbl("and_no")
@@ -76,7 +89,6 @@ lpp_lower_xpr = function(buf, node, dest)
         end
 
         if op == "OR" then
-            -- lhs true -> skip rhs, result=1. lhs false -> result=(rhs!=0)
             local lpp_spill   = lpp_mktmp("orspill")
             local lpp_rhs_lbl = lpp_mklbl("or_rhs")
             local lpp_yes_lbl = lpp_mklbl("or_yes")
@@ -109,11 +121,19 @@ lpp_lower_xpr = function(buf, node, dest)
     elseif k == "call" then
         local lpp_callargs = {}
         for i=1,#node.args do
+            local arg = node.args[i]
             local t = lpp_mktmp("callarg")
-            lpp_lower_xpr(buf, node.args[i], t)
-            lpp_callargs[#lpp_callargs+1] = "w %"..t
+            lpp_lower_xpr(buf, arg, t)
+            -- string args are pointers (long), int args are word
+            if arg.kind == "lit_str" then
+                lpp_callargs[#lpp_callargs+1] = "l %"..t
+            else
+                lpp_callargs[#lpp_callargs+1] = "w %"..t
+            end
         end
-        local lpp_callee = node.fname == "print" and "print_int" or node.fname
+        -- print -> print_int, print_str handled by name
+        local lpp_callee = node.fname
+        if lpp_callee == "print" then lpp_callee = "print_int" end
         lpp_emit(buf, string.format("    %%%s =w call $%s(%s)",
             dest, lpp_callee, table.concat(lpp_callargs, ", ")))
 
@@ -128,7 +148,12 @@ local function lpp_lower_stmt(buf, s, lpp_brk_lbl)
     if k == "decl" or k == "assign" then
         local t = lpp_mktmp("store")
         lpp_lower_xpr(buf, s.rhs, t)
-        lpp_emit(buf, string.format("    storew %%%s, %%%s_slot", t, s.vname))
+        -- string slots are pointer-sized (long), int slots are word
+        if s.rhs and s.rhs.kind == "lit_str" then
+            lpp_emit(buf, string.format("    storel %%%s, %%%s_slot", t, s.vname))
+        else
+            lpp_emit(buf, string.format("    storew %%%s, %%%s_slot", t, s.vname))
+        end
 
     elseif k == "xstmt" then
         lpp_lower_xpr(buf, s.expr, lpp_mktmp("discard"))
@@ -191,12 +216,12 @@ lpp_lower_block = function(buf, block, lpp_brk_lbl)
     return false
 end
 
--- walk the whole function body and collect every variable name that gets
--- written to, so we can alloca all of them up at @entry
 local function lpp_hoist_decls(block, lpp_seen)
     for i=1,#block.stmts do
         local s = block.stmts[i]
-        if s.kind == "decl" or s.kind == "assign" then lpp_seen[s.vname] = true end
+        if s.kind == "decl" or s.kind == "assign" then
+            lpp_seen[s.vname] = s.vtype or "int"
+        end
         if s.kind == "ifx" then
             lpp_hoist_decls(s.yes, lpp_seen)
             if s.no then lpp_hoist_decls(s.no, lpp_seen) end
@@ -209,7 +234,9 @@ end
 local function lpp_lower_func(buf, fn)
     local lpp_paramsigs = {}
     for i=1,#fn.params do
-        lpp_paramsigs[i] = "w %lpp_p_"..fn.params[i].pname
+        local ptype = fn.params[i].ptype
+        local qtype = (ptype == "str") and "l" or "w"
+        lpp_paramsigs[i] = qtype.." %lpp_p_"..fn.params[i].pname
     end
 
     local lpp_export_nm = fn.fname == "main" and "lang_main" or fn.fname
@@ -219,27 +246,56 @@ local function lpp_lower_func(buf, fn)
 
     local lpp_allvars = {}
     lpp_hoist_decls(fn.body, lpp_allvars)
-    for i=1,#fn.params do lpp_allvars[fn.params[i].pname] = true end
+    for i=1,#fn.params do
+        lpp_allvars[fn.params[i].pname] = fn.params[i].ptype or "int"
+    end
 
-    for vname in pairs(lpp_allvars) do
-        lpp_emit(buf, string.format("    %%%s_slot =l alloc4 4", vname))
+    for vname, vtype in pairs(lpp_allvars) do
+        if vtype == "str" then
+            lpp_emit(buf, string.format("    %%%s_slot =l alloc8 8", vname))
+        else
+            lpp_emit(buf, string.format("    %%%s_slot =l alloc4 4", vname))
+        end
     end
     for i=1,#fn.params do
         local pn = fn.params[i].pname
-        lpp_emit(buf, string.format("    storew %%lpp_p_%s, %%%s_slot", pn, pn))
+        local pt = fn.params[i].ptype or "int"
+        if pt == "str" then
+            lpp_emit(buf, string.format("    storel %%lpp_p_%s, %%%s_slot", pn, pn))
+        else
+            lpp_emit(buf, string.format("    storew %%lpp_p_%s, %%%s_slot", pn, pn))
+        end
     end
 
     if not lpp_lower_block(buf, fn.body, nil) then lpp_emit(buf, "    ret 0") end
     lpp_emit(buf, "}")
 end
 
+local function lpp_emit_data(buf)
+    for i=1,#lpp_str_lits do
+        local sl = lpp_str_lits[i]
+        -- escape the string for QBE data section
+        local escaped = sl.val:gsub('\\', '\\\\'):gsub('"', '\\"')
+        lpp_emit(buf, string.format('data $%s = { b "%s", b 0 }', sl.lbl, escaped))
+    end
+end
+
 local function lpp_codegen(prog)
     lpp_nlabels = 0; lpp_ntemps = 0
+    lpp_str_lits = {}; lpp_nstrs = 0
     local buf = {}
+
     for i=1,#prog.funcs do
         lpp_lower_func(buf, prog.funcs[i])
         lpp_emit(buf, "")
     end
+
+    -- emit string data section at the end
+    if #lpp_str_lits > 0 then
+        lpp_emit(buf, "")
+        lpp_emit_data(buf)
+    end
+
     return table.concat(buf, "\n")
 end
 

@@ -1,0 +1,37 @@
+linkto "standard"
+
+extern func canvas_init(w: int, h: int): int
+extern func canvas_clear(r: int, g: int, b: int): int
+extern func canvas_text(x: int, y: int, r: int, g: int, b: int, s: str): int
+extern func canvas_font(path: str, size: int): int
+extern func canvas_present(): int
+extern func canvas_poll(): int
+extern func canvas_key(k: int): int
+extern func canvas_quit(): int
+extern func sleep_ms(ms: int): int
+
+func main(): int {
+    canvas_init(400, 200)
+    canvas_font("/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf", 28)
+
+    local pressed: int = 0
+
+    while canvas_poll() {
+        canvas_clear(15, 15, 25)
+
+        local sp: int = canvas_key(4)
+        if sp {
+            pressed = 1
+        }
+
+        if pressed {
+            canvas_text(60, 80, 100, 255, 100, "SPACE PRINTED !")
+        }
+
+        canvas_present()
+        sleep_ms(16)
+    }
+
+    canvas_quit()
+    return 0
+}

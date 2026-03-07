@@ -28,12 +28,17 @@ local function lpp_parse(lpp_toklist)
         return t
     end
 
-    -- type annotations are just identifiers basically. int, bool, or any name.
+    -- type annotations: int, bool, str, or any ident
     local function lpp_eat_typeannot()
         local t = lpp_curtok()
         if t and (t.tag == "INT" or t.tag == "BOOL" or t.tag == "IDENT") then
             lpp_cur = lpp_cur+1
             return t.val or t.tag:lower()
+        end
+        -- also allow "str" as a keyword-ish type
+        if t and t.tag == "IDENT" and t.val == "str" then
+            lpp_cur = lpp_cur+1
+            return "str"
         end
         error("lpp: expected type annotation at token "..lpp_cur)
     end
@@ -49,7 +54,7 @@ local function lpp_parse(lpp_toklist)
     }
 
     local function lpp_parse_atom()
-        -- unary minus: fold into literal if we can, otherwise wrap as uneg node
+        -- unary minus
         if lpp_curtag("MINUS") then
             lpp_advance("MINUS")
             local sub = lpp_parse_atom()
@@ -69,6 +74,7 @@ local function lpp_parse(lpp_toklist)
         if t.tag == "NUMBER" then return {kind="lit_int", ival=t.val} end
         if t.tag == "TRUE"   then return {kind="lit_int", ival=1} end
         if t.tag == "FALSE"  then return {kind="lit_int", ival=0} end
+        if t.tag == "STRING" then return {kind="lit_str", sval=t.val} end
 
         if t.tag == "LPAREN" then
             local inner = lpp_climb_expr()
@@ -132,7 +138,6 @@ local function lpp_parse(lpp_toklist)
             return {kind="decl", vname=lpp_varname, vtype=lpp_vartype, rhs=lpp_climb_expr()}
 
         elseif t.tag == "IDENT" then
-            -- two possibilities: assignment (x = ...) or a bare expression (fn call)
             if lpp_peektok() and lpp_peektok().tag == "ASSIGN" then
                 local lpp_varname = lpp_advance("IDENT").val
                 lpp_advance("ASSIGN")
@@ -161,7 +166,7 @@ local function lpp_parse(lpp_toklist)
             return {kind="brk"}
         end
 
-        -- fallthrough: try as expression statement (catches bare fn calls etc)
+        -- fallthrough: bare expression statement
         return {kind="xstmt", expr=lpp_climb_expr()}
     end
 
@@ -182,9 +187,54 @@ local function lpp_parse(lpp_toklist)
         return {kind="fn", fname=lpp_fname, params=lpp_params, rtype=lpp_rtype, body=lpp_parse_block()}
     end
 
-    local lpp_prog = {kind="prog", funcs={}}
+    -- extern func_name(type, type, ...): rettype
+    local function lpp_parse_extern()
+        lpp_advance("EXTERN")
+        lpp_advance("FUNC")
+        local lpp_fname = lpp_advance("IDENT").val
+        lpp_advance("LPAREN")
+        local lpp_ptypes = {}
+        while lpp_curtok() and not lpp_curtag("RPAREN") do
+            -- param can be "name: type" or just "type"
+            local t = lpp_curtok()
+            local lpp_ptype
+            if t.tag == "IDENT" and lpp_peektok() and lpp_peektok().tag == "COLON" then
+                lpp_advance("IDENT")  -- name
+                lpp_advance("COLON")
+                lpp_ptype = lpp_eat_typeannot()
+            else
+                lpp_ptype = lpp_eat_typeannot()
+            end
+            lpp_ptypes[#lpp_ptypes+1] = lpp_ptype
+            if lpp_curtag("COMMA") then lpp_advance("COMMA") end
+        end
+        lpp_advance("RPAREN")
+        local lpp_rtype = "int"
+        if lpp_curtag("COLON") then lpp_advance("COLON"); lpp_rtype = lpp_eat_typeannot() end
+        return {kind="extern_fn", fname=lpp_fname, ptypes=lpp_ptypes, rtype=lpp_rtype}
+    end
+
+    -- linkto "libname"
+    local function lpp_parse_linkto()
+        lpp_advance("LINKTO")
+        local lpp_libname = lpp_advance("STRING").val
+        return {kind="linkto", libname=lpp_libname}
+    end
+
+    local lpp_prog = {kind="prog", funcs={}, externs={}, links={}}
     while lpp_cur <= #lpp_toklist do
-        lpp_prog.funcs[#lpp_prog.funcs+1] = lpp_parse_funcdef()
+        local t = lpp_curtok()
+        if t.tag == "EXTERN" then
+            local ex = lpp_parse_extern()
+            lpp_prog.externs[#lpp_prog.externs+1] = ex
+        elseif t.tag == "LINKTO" then
+            local lk = lpp_parse_linkto()
+            lpp_prog.links[#lpp_prog.links+1] = lk
+        elseif t.tag == "FUNC" then
+            lpp_prog.funcs[#lpp_prog.funcs+1] = lpp_parse_funcdef()
+        else
+            error("lpp: expected func, extern, or linkto at top level, got "..t.tag)
+        end
     end
     return lpp_prog
 end

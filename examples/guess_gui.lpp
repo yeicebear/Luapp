@@ -1,0 +1,96 @@
+linkto "gamelib"
+linkto "std"
+extern func canvas_init(w: int, h: int): int
+extern func canvas_clear(r: int, g: int, b: int): int
+extern func canvas_rect(x: int, y: int, w: int, h: int): int
+extern func canvas_color(r: int, g: int, b: int): int
+extern func canvas_text(x: int, y: int, r: int, g: int, b: int, s: str): int
+extern func canvas_font(path: str, size: int): int
+extern func canvas_present(): int
+extern func canvas_poll(): int
+extern func canvas_key(k: int): int
+extern func canvas_quit(): int
+extern func rand_int(min: int, max: int): int
+extern func sleep_ms(ms: int): int
+extern func print_int(x: int): int
+extern func canvas_int(x: int, y: int, r: int, g: int, b: int, n: int): int
+
+func main(): int {
+    canvas_init(1280, 720)
+    canvas_font("/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf", 26)
+
+    local secret: int = rand_int(1, 100)
+    local guess: int = 50
+    local tries: int = 0
+    local won: int = 0
+    local up_held: int = 0
+    local down_held: int = 0
+
+    while canvas_poll() {
+        canvas_clear(15, 15, 25)
+
+        local up: int = canvas_key(0)
+        local dn: int = canvas_key(1)
+        local sp: int = canvas_key(4)
+        local esc: int = canvas_key(5)
+
+        if esc {
+            break
+        }
+
+        if up != up_held {
+            if up {
+                if guess < 100 {
+                    guess = guess + 1
+                }
+            }
+            up_held = up
+        }
+
+        if dn != down_held {
+            if dn {
+                if guess > 1 {
+                    guess = guess - 1
+                }
+            }
+            down_held = dn
+        }
+
+        if sp {
+            if won == 0 {
+                tries = tries + 1
+                if guess == secret {
+                    won = 1
+                }
+            }
+        }
+
+        canvas_text(60, 30, 180, 180, 255, "number guesser game very gay")
+        canvas_text(60, 80, 150, 150, 150, "UP/DOWN ARROW, NOT WASD Y/N STOP TWEAKING ")
+        canvas_text(60,120,150,150,150," YA'HMAR to change, SPACEBAR to guess")
+
+        canvas_text(60, 140, 255, 255, 255, "your guess iz:")
+        canvas_int(280, 140, 100, 255, 200, guess)
+
+        if won == 0 {
+            if guess < secret {
+                canvas_text(60, 190, 255, 180, 80, "too low ya illah")
+            }
+            if guess > secret {
+                canvas_text(60, 190, 255, 80, 80, "too high nononon")
+            }
+        }
+
+        if won {
+            canvas_color(40, 120, 40)
+            canvas_rect(40, 190, 400, 70)
+            canvas_text(60, 210, 200, 255, 200, "correct! ESC to quit")
+        }
+
+        canvas_present()
+        sleep_ms(16)
+    }
+
+    canvas_quit()
+    return 0
+}
