@@ -1,28 +1,24 @@
--- lpp parser.
+-- lpp parser
+-- takes the token list from the lexer and builds an AST.
 -- recursive descent for statements, pratt climbing for expressions.
--- supports: funcs, externs, linkto (c libs + lpp files), structs at top level
--- statements: local, assign, if/else-if/else, while, break, return, case
--- expressions: int/float/str literals, vars, calls, array index, field access, binops
+-- i looked up pratt parsing once and now i won't shut up about it.
+-- structs are collected into a shared table as we go so functions can see them.
 
 local function lpp_parse(lpp_toklist)
     local lpp_cur = 1
-
-    -- struct definitions collected at top level: name -> {fields={name,type,...}, size}
-    local lpp_structs = {}
+    local lpp_structs = {}  -- struct definitions, filled in as we see them at top level
 
     local function lpp_curtok()   return lpp_toklist[lpp_cur] end
     local function lpp_peektok(n) return lpp_toklist[lpp_cur + (n or 1)] end
-
-    local function lpp_curtag(tag)
-        return lpp_curtok() and lpp_curtok().tag == tag
-    end
+    local function lpp_curtag(tag) return lpp_curtok() and lpp_curtok().tag == tag end
 
     local function lpp_advance(expected)
         local t = lpp_curtok()
         if not t then
-            error("lpp: unexpected end of file" .. (expected and (", wanted "..expected) or ""))
+            error("lpp: unexpected end of file"..(expected and (", wanted "..expected) or ""))
         end
         if expected and t.tag ~= expected then
+            -- this error message has saved me from losing my mind many times
             error("lpp: syntax error at token "..lpp_cur..
                   " — got "..t.tag..(t.val and ("("..tostring(t.val)..")") or "")..
                   ", expected "..expected)
@@ -31,30 +27,41 @@ local function lpp_parse(lpp_toklist)
         return t
     end
 
-    -- parse a type annotation, returns type string
-    -- handles: int, float, str, bool, StructName, int[N], float[N], str[N]
+    -- parse a type annotation after a colon.
+    -- handles plain types, fixed arrays Type[N], and dynamic arrays Type[]
+    -- char and long are their own types now, lucky them
     local function lpp_eat_type()
         local t = lpp_curtok()
         local base
-        if t and (t.tag == "INT" or t.tag == "FLOAT" or t.tag == "STR" or
-                  t.tag == "BOOL" or t.tag == "IDENT") then
+        if t and (t.tag=="INT" or t.tag=="FLOAT" or t.tag=="STR" or t.tag=="BOOL"
+               or t.tag=="CHAR" or t.tag=="LONG" or t.tag=="IDENT") then
             lpp_cur = lpp_cur+1
             base = t.val or t.tag:lower()
         else
             error("lpp: expected type at token "..lpp_cur.." got "..(t and t.tag or "nil"))
         end
-        -- check for array: Type[N]
+        -- check for array suffix
         if lpp_curtag("LBRACK") then
             lpp_advance("LBRACK")
-            local sz = lpp_advance("NUMBER").val
-            lpp_advance("RBRACK")
-            return base.."["..sz.."]"
+            if lpp_curtag("RBRACK") then
+                -- dynamic array: Type[] — no size, heap allocated
+                lpp_advance("RBRACK")
+                return base.."[]"
+            else
+                -- fixed array: Type[N] — stack allocated, size known at compile time
+                local sz = lpp_advance("NUMBER").val
+                lpp_advance("RBRACK")
+                return base.."["..sz.."]"
+            end
         end
         return base
     end
 
     local lpp_climb_expr, lpp_parse_block, lpp_parse_stmt
 
+    -- binding powers for infix operators.
+    -- higher number = tighter binding = done first.
+    -- if you change these and things break, that's on you.
     local lpp_bp = {
         OR=1, AND=2,
         EQ=3, NEQ=3, LT=3, GT=3, LE=3, GE=3,
@@ -63,6 +70,7 @@ local function lpp_parse(lpp_toklist)
     }
 
     local function lpp_parse_atom()
+        -- unary minus: flip the sign, or for literals just negate the value directly
         if lpp_curtag("MINUS") then
             lpp_advance("MINUS")
             local sub = lpp_parse_atom()
@@ -71,6 +79,7 @@ local function lpp_parse(lpp_toklist)
             return {kind="uneg", x=sub}
         end
 
+        -- logical not
         if lpp_curtag("BANG") then
             lpp_advance("BANG")
             return {kind="unot", x=lpp_parse_atom()}
@@ -80,10 +89,12 @@ local function lpp_parse(lpp_toklist)
 
         if t.tag == "NUMBER" then return {kind="lit_int",   ival=t.val} end
         if t.tag == "FLOAT"  then return {kind="lit_float", fval=t.val} end
+        if t.tag == "CHAR"   then return {kind="lit_int",   ival=t.val} end  -- char is just an int, don't @ me
         if t.tag == "TRUE"   then return {kind="lit_int",   ival=1} end
         if t.tag == "FALSE"  then return {kind="lit_int",   ival=0} end
         if t.tag == "STRING" then return {kind="lit_str",   sval=t.val} end
 
+        -- parenthesised expression
         if t.tag == "LPAREN" then
             local inner = lpp_climb_expr()
             lpp_advance("RPAREN")
@@ -91,7 +102,7 @@ local function lpp_parse(lpp_toklist)
         end
 
         if t.tag == "IDENT" then
-            -- function call
+            -- if the next token is '(' it's a function call
             if lpp_curtag("LPAREN") then
                 lpp_advance("LPAREN")
                 local lpp_arglist = {}
@@ -114,7 +125,7 @@ local function lpp_parse(lpp_toklist)
                 local idx = lpp_climb_expr()
                 lpp_advance("RBRACK")
                 node = {kind="arr_get", vname=t.val, idx=idx}
-            -- field access: name.field
+            -- struct field access: name.field
             elseif lpp_curtag("DOT") then
                 lpp_advance("DOT")
                 local field = lpp_advance("IDENT").val
@@ -127,6 +138,9 @@ local function lpp_parse(lpp_toklist)
         error("lpp: unexpected "..t.tag.." at token "..(lpp_cur-1))
     end
 
+    -- pratt expression climbing.
+    -- min_bp is the minimum binding power we're willing to consume.
+    -- starts at 0 which means "eat everything".
     lpp_climb_expr = function(lpp_min_bp)
         lpp_min_bp = lpp_min_bp or 0
         local lhs = lpp_parse_atom()
@@ -154,13 +168,13 @@ local function lpp_parse(lpp_toklist)
         local t = lpp_curtok()
         if not t then return nil end
 
-        -- local declaration: local name: Type = expr
+        -- variable declaration: local name: Type [= expr]
+        -- the initializer is optional for arrays and structs
         if t.tag == "LOCAL" then
             lpp_advance("LOCAL")
             local lpp_varname = lpp_advance("IDENT").val
             lpp_advance("COLON")
             local lpp_vartype = lpp_eat_type()
-            -- arrays and structs don't need = initializer
             local lpp_rhs = nil
             if lpp_curtag("ASSIGN") then
                 lpp_advance("ASSIGN")
@@ -172,32 +186,29 @@ local function lpp_parse(lpp_toklist)
             local name = t.val
             local next = lpp_peektok()
 
-            -- plain assign: name = expr
+            -- plain assignment: name = expr
             if next and next.tag == "ASSIGN" then
-                lpp_advance("IDENT")
-                lpp_advance("ASSIGN")
+                lpp_advance("IDENT"); lpp_advance("ASSIGN")
                 return {kind="assign", vname=name, rhs=lpp_climb_expr()}
             end
 
-            -- array assign: name[idx] = expr
+            -- array element assignment: name[idx] = expr
             if next and next.tag == "LBRACK" then
-                lpp_advance("IDENT")
-                lpp_advance("LBRACK")
+                lpp_advance("IDENT"); lpp_advance("LBRACK")
                 local idx = lpp_climb_expr()
-                lpp_advance("RBRACK")
-                lpp_advance("ASSIGN")
+                lpp_advance("RBRACK"); lpp_advance("ASSIGN")
                 return {kind="arr_set", vname=name, idx=idx, rhs=lpp_climb_expr()}
             end
 
-            -- field assign: name.field = expr
+            -- struct field assignment: name.field = expr
             if next and next.tag == "DOT" then
-                lpp_advance("IDENT")
-                lpp_advance("DOT")
+                lpp_advance("IDENT"); lpp_advance("DOT")
                 local field = lpp_advance("IDENT").val
                 lpp_advance("ASSIGN")
                 return {kind="field_set", vname=name, field=field, rhs=lpp_climb_expr()}
             end
 
+            -- just a bare expression statement (usually a function call we don't use the return value of)
             return {kind="xstmt", expr=lpp_climb_expr()}
 
         elseif t.tag == "IF" then
@@ -208,6 +219,8 @@ local function lpp_parse(lpp_toklist)
             if lpp_curtag("ELSE") then
                 lpp_advance("ELSE")
                 if lpp_curtag("IF") then
+                    -- else if: wrap the inner if as a single-statement block
+                    -- not the prettiest trick but it works fine
                     local inner = lpp_parse_stmt()
                     lpp_no = {kind="block", stmts={inner}}
                 else
@@ -228,11 +241,8 @@ local function lpp_parse(lpp_toklist)
             lpp_advance("BREAK")
             return {kind="brk"}
 
-        -- case x {
-        --   1 { ... }
-        --   2 { ... }
-        --   else { ... }
-        -- }
+        -- case statement: case expr { val { ... } val { ... } else { ... } }
+        -- compiles down to a chain of if/else comparisons. nothing fancy.
         elseif t.tag == "CASE" then
             lpp_advance("CASE")
             local lpp_subject = lpp_climb_expr()
@@ -244,7 +254,7 @@ local function lpp_parse(lpp_toklist)
                     lpp_advance("ELSE")
                     lpp_default = lpp_parse_block()
                 else
-                    local lpp_val = lpp_climb_expr()
+                    local lpp_val  = lpp_climb_expr()
                     local lpp_body = lpp_parse_block()
                     lpp_arms[#lpp_arms+1] = {val=lpp_val, body=lpp_body}
                 end
@@ -268,12 +278,14 @@ local function lpp_parse(lpp_toklist)
             if lpp_curtag("COMMA") then lpp_advance("COMMA") end
         end
         lpp_advance("RPAREN")
-        local lpp_rtype = "int"
+        local lpp_rtype = "int"  -- default return type is int, like God intended
         if lpp_curtag("COLON") then lpp_advance("COLON"); lpp_rtype = lpp_eat_type() end
+        -- pass the struct table into the function node so codegen can look up field offsets
         return {kind="fn", fname=lpp_fname, params=lpp_params, rtype=lpp_rtype,
                 body=lpp_parse_block(), structs=lpp_structs}
     end
 
+    -- extern declares a C function so lpp knows the name and types without having to trust us
     local function lpp_parse_extern()
         lpp_advance("EXTERN")
         lpp_advance("FUNC")
@@ -281,6 +293,7 @@ local function lpp_parse(lpp_toklist)
         lpp_advance("LPAREN")
         local lpp_ptypes = {}
         while lpp_curtok() and not lpp_curtag("RPAREN") do
+            -- allow optional param names before the colon — we throw them away anyway
             local t2 = lpp_curtok()
             if t2.tag == "IDENT" and lpp_peektok() and lpp_peektok().tag == "COLON" then
                 lpp_advance("IDENT"); lpp_advance("COLON")
@@ -297,11 +310,15 @@ local function lpp_parse(lpp_toklist)
     local function lpp_parse_linkto()
         lpp_advance("LINKTO")
         local lpp_libname = lpp_advance("STRING").val
+        -- if it ends in .lpp we'll merge it at the AST level before compiling
+        -- otherwise it's a C library name and main.lua handles finding the file
         local islpp = lpp_libname:match("%.lpp$") and true or false
         return {kind="linkto", libname=lpp_libname, islpp=islpp}
     end
 
-    -- struct Foo { x: int, y: float }
+    -- struct definition at top level.
+    -- fields get their byte offsets calculated here so codegen doesn't have to think.
+    -- char is 1 byte, everything else is either 4 or 8.
     local function lpp_parse_struct()
         lpp_advance("STRUCT")
         local sname = lpp_advance("IDENT").val
@@ -312,8 +329,10 @@ local function lpp_parse(lpp_toklist)
             local fname = lpp_advance("IDENT").val
             lpp_advance("COLON")
             local ftype = lpp_eat_type()
-            -- field size: float=8, int/bool=4, str=8
-            local fsize = (ftype == "float" or ftype == "str") and 8 or 4
+            local fsize
+            if ftype == "float" or ftype == "str" or ftype == "long" then fsize = 8
+            elseif ftype == "char" then fsize = 1
+            else fsize = 4 end
             fields[#fields+1] = {name=fname, ftype=ftype, offset=offset, size=fsize}
             offset = offset + fsize
             if lpp_curtag("COMMA") then lpp_advance("COMMA") end
@@ -323,15 +342,16 @@ local function lpp_parse(lpp_toklist)
         return {kind="structdef", sname=sname}
     end
 
+    -- main parse loop — only top-level things allowed here
+    -- no statements at the top level, lpp is not a script
     local lpp_prog = {kind="prog", funcs={}, externs={}, links={}, structs=lpp_structs}
     while lpp_cur <= #lpp_toklist do
         local t = lpp_curtok()
-        if t.tag == "EXTERN"  then lpp_prog.externs[#lpp_prog.externs+1] = lpp_parse_extern()
-        elseif t.tag == "LINKTO" then lpp_prog.links[#lpp_prog.links+1]   = lpp_parse_linkto()
-        elseif t.tag == "FUNC"   then lpp_prog.funcs[#lpp_prog.funcs+1]   = lpp_parse_funcdef()
-        elseif t.tag == "STRUCT" then lpp_parse_struct() -- registered into lpp_structs
-        else
-            error("lpp: expected func, extern, linkto, or struct at top level, got "..t.tag)
+        if     t.tag == "EXTERN"  then lpp_prog.externs[#lpp_prog.externs+1] = lpp_parse_extern()
+        elseif t.tag == "LINKTO"  then lpp_prog.links[#lpp_prog.links+1]     = lpp_parse_linkto()
+        elseif t.tag == "FUNC"    then lpp_prog.funcs[#lpp_prog.funcs+1]     = lpp_parse_funcdef()
+        elseif t.tag == "STRUCT"  then lpp_parse_struct()
+        else error("lpp: expected func, extern, linkto, or struct at top level, got "..t.tag)
         end
     end
     return lpp_prog

@@ -1,21 +1,25 @@
--- lpp semantic pass.
--- catches undefined vars/functions before we hit qbe.
--- tracks array and struct declarations for basic validation.
+-- lpp semantic analysis
+-- walks the AST and catches obvious mistakes before we hand it to qbe.
+-- this is NOT a type checker. it's more of a "did you forget to declare this variable" checker.
+-- if you want real type safety, go use rust or something.
 
 local lpp_valid_ops = {
     PLUS=1, MINUS=1, STAR=1, SLASH=1, PCENT=1,
     EQ=1, NEQ=1, GT=1, LT=1, GE=1, LE=1, AND=1, OR=1,
 }
 
-local lpp_scopestack = {}
+local lpp_scopestack  = {}
 local lpp_known_fns
 local lpp_known_structs
 
--- builtins always available without linkto
+-- these functions are always available even without a linkto.
+-- print is an alias for print_int so it goes here too.
 local lpp_builtins = {
-    print=1, print_str=1, print_int=1,
+    print=1, print_str=1, print_int=1, print_float=1, print_char=1,
 }
 
+-- scope is a stack of tables. push on enter, pop on leave.
+-- lookup walks the stack from top to bottom so inner scopes shadow outer ones.
 local function lpp_scope_enter()  lpp_scopestack[#lpp_scopestack+1] = {} end
 local function lpp_scope_leave()  lpp_scopestack[#lpp_scopestack] = nil  end
 local function lpp_scope_bind(nm, vtype)
@@ -27,12 +31,12 @@ local function lpp_scope_lookup(nm)
     end
 end
 
-local function lpp_err(msg) error("lpp: " .. msg) end
+local function lpp_err(msg) error("lpp: "..msg) end
 
+-- check an expression node for undefined names
 local function lpp_chk_xpr(nd)
     if not nd then return end
     local k = nd.kind
-
     if k == "lit_int" or k == "lit_float" or k == "lit_str" then return
 
     elseif k == "var" then
@@ -41,6 +45,7 @@ local function lpp_chk_xpr(nd)
         end
 
     elseif k == "arr_get" then
+        -- we can't check bounds here since they might not be known — that's a you problem at runtime
         if not lpp_scope_lookup(nd.vname) then
             lpp_err("array '"..nd.vname.."' used before declared")
         end
@@ -60,14 +65,15 @@ local function lpp_chk_xpr(nd)
 
     elseif k == "call" then
         if not lpp_known_fns[nd.fname] and not lpp_builtins[nd.fname] then
-            lpp_err("'"..nd.fname.."' — no such function")
+            lpp_err("'"..nd.fname.."' — no such function (did you forget an extern or linkto?)")
         end
         for i=1,#nd.args do lpp_chk_xpr(nd.args[i]) end
 
-    else lpp_err("lpp_chk_xpr: unhandled node '"..tostring(k).."'")
+    else lpp_err("lpp_chk_xpr: unhandled node kind '"..tostring(k).."' — this is a compiler bug, sorry")
     end
 end
 
+-- walk a block of statements, maintaining scope as we go
 local function lpp_scope_walk(bl)
     lpp_scope_enter()
     for i=1,#bl.stmts do
@@ -76,7 +82,7 @@ local function lpp_scope_walk(bl)
 
         if k == "decl" then
             if s.rhs then lpp_chk_xpr(s.rhs) end
-            lpp_scope_bind(s.vname, s.vtype)
+            lpp_scope_bind(s.vname, s.vtype)  -- bind AFTER checking rhs so you can't use a var in its own initializer
 
         elseif k == "assign" then
             if not lpp_scope_lookup(s.vname) then
@@ -85,19 +91,15 @@ local function lpp_scope_walk(bl)
             lpp_chk_xpr(s.rhs)
 
         elseif k == "arr_set" then
-            if not lpp_scope_lookup(s.vname) then
-                lpp_err("array '"..s.vname.."' not declared")
-            end
+            if not lpp_scope_lookup(s.vname) then lpp_err("array '"..s.vname.."' not declared") end
             lpp_chk_xpr(s.idx); lpp_chk_xpr(s.rhs)
 
         elseif k == "field_set" then
-            if not lpp_scope_lookup(s.vname) then
-                lpp_err("'"..s.vname.."' not declared")
-            end
+            if not lpp_scope_lookup(s.vname) then lpp_err("'"..s.vname.."' not declared") end
             lpp_chk_xpr(s.rhs)
 
         elseif k == "ret"   then lpp_chk_xpr(s.val)
-        elseif k == "brk"   then
+        elseif k == "brk"   then  -- nothing to check, break is always valid if codegen catches misuse
         elseif k == "xstmt" then lpp_chk_xpr(s.expr)
 
         elseif k == "ifx" then
@@ -111,13 +113,10 @@ local function lpp_scope_walk(bl)
 
         elseif k == "casex" then
             lpp_chk_xpr(s.subject)
-            for j=1,#s.arms do
-                lpp_chk_xpr(s.arms[j].val)
-                lpp_scope_walk(s.arms[j].body)
-            end
+            for j=1,#s.arms do lpp_chk_xpr(s.arms[j].val); lpp_scope_walk(s.arms[j].body) end
             if s.default then lpp_scope_walk(s.default) end
 
-        else lpp_err("lpp_scope_walk: unhandled stmt '"..tostring(k).."'")
+        else lpp_err("lpp_scope_walk: unhandled stmt '"..tostring(k).."' — compiler bug")
         end
     end
     lpp_scope_leave()
@@ -125,16 +124,18 @@ end
 
 local function lpp_analyze(prog)
     if not prog or prog.kind ~= "prog" then
-        lpp_err("lpp_analyze didn't get a program node")
+        lpp_err("analyze didn't get a program node — something went badly wrong upstream")
     end
 
-    lpp_scopestack  = {}
-    lpp_known_fns   = {}
+    lpp_scopestack    = {}
+    lpp_known_fns     = {}
     lpp_known_structs = prog.structs or {}
 
+    -- register all extern and func names so forward calls work
     for i=1,#prog.externs do lpp_known_fns[prog.externs[i].fname] = true end
     for i=1,#prog.funcs   do lpp_known_fns[prog.funcs[i].fname]   = true end
 
+    -- walk each function body
     for i=1,#prog.funcs do
         local fn = prog.funcs[i]
         lpp_scope_enter()
@@ -145,6 +146,6 @@ local function lpp_analyze(prog)
     return true
 end
 
--- This stupid ass problem alone caused me 4 sleepless nights.
+-- this stupid ass problem alone caused me 4 sleepless nights.
 
 return lpp_analyze
