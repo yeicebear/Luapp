@@ -10,18 +10,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install deps
+      - name: Install deps (dependencies and shi)
         run: sudo apt-get install -y musl-tools lua5.4 luarocks
       - name: Install luastatic
         run: sudo luarocks install luastatic
-      - name: Build QBE
+      - name: Build QBE (Quick Backend, required for compilation ;-;)
         run: make -C qbe
-      - name: Build Lua
+      - name: Build Lua (W)
         run: make -C lua-5.4.7 linux CC=musl-gcc
-      - name: Build lpp
+      - name: Build lpp(W++)
         run: |
           cd src
-          luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a
+          luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a -- -I../lua-5.4.7/src
           cd ..
           musl-gcc -static -o lpp src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm -ldl
