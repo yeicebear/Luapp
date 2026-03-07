@@ -55,8 +55,10 @@ jobs:
           clang -std=gnu99 -O2 -DLUA_COMPAT_5_3 -DLUA_USE_MACOSX -c *.c
           rm -f lua.o luac.o
           libtool -static -o liblua.a *.o
-      - name: Build lpp
+      - name: Build lpp but macOS :(
         run: |
+          sudo mkdir -p /usr/local/include
+          sudo cp lua-5.4.7/src/*.h /usr/local/include/
           cd src
           luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a
           cd ..
