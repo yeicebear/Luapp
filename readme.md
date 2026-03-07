@@ -1,5 +1,5 @@
 # HOW TO INSTALL
-<sub>we'll be straight to the point this time</sub>  
+`we'll be straight to the point this time`
 
 
 **Linux / macOS**
