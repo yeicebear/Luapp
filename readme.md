@@ -11,3 +11,11 @@ curl -fsSL https://raw.githubusercontent.com/yeicebear/Luapp/main/install.sh | s
 Install [WSL](https://learn.microsoft.com/en-us/windows/wsl/install), then run the Linux command above.
 
 **requirements:** `cc` (gcc or clang) must be in your PATH. (Default on Linux. For MacOS, just run the script. It'll prompt you to install it.)
+
+# TO SEE FILE CONTENTS (IF U DONT TRUST ME, I DONT BLAME U.)
+
+```
+curl -fsSL https://raw.githubusercontent.com/yeicebear/Luapp/main/install.sh | sh
+```
+<img width="922" height="696" alt="image" src="https://github.com/user-attachments/assets/81f377e6-581f-4c69-b077-ccfcbb52f480" />
+** This command shows you the contents of the file, so you dont end up running a malicious script. It's good practice. to run this command before piping it to sh. **
