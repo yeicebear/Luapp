@@ -1,5 +1,6 @@
 # HOW TO INSTALL
-`we'll be straight to the point this time`
+<small><span style="color: gray;">we'll be straight to the point this time</span></small>
+
 
 
 **Linux / macOS**
