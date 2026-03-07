@@ -8,7 +8,6 @@
 #include <string.h>
 #include <time.h>
 
-// ─── printing ─────────────────────────────────────────────────────────────────
 
 void print_int(int x)         { printf("%d\n", x); }
 void print_float(double x)    { printf("%f\n", x); }
@@ -16,7 +15,6 @@ void print_str(const char *s) { if (s) puts(s); }
 void print_char(int c)        { putchar(c); }
 void print_long(long x)       { printf("%ld\n", x); }
 
-// ─── input ────────────────────────────────────────────────────────────────────
 
 int input_int(void) {
     int v = 0;
@@ -33,7 +31,6 @@ int input_char(void) {
     return getchar();
 }
 
-// ─── random ───────────────────────────────────────────────────────────────────
 
 static int lpp_seeded = 0;
 
@@ -44,8 +41,6 @@ int rand_int(int mn, int mx) {
     if (mx <= mn) return mn;
     return mn + rand() % (mx - mn + 1);
 }
-
-// ─── time / sleep ─────────────────────────────────────────────────────────────
 
 // milliseconds since program started (approximately)
 int time_ms(void) {
@@ -62,7 +57,6 @@ int sleep_ms(int ms) {
     return 0;
 }
 
-// ─── string operations ────────────────────────────────────────────────────────
 // these are pretty basic. real string manipulation is coming once lpp has
 // proper byte arrays. for now you get length, indexing, and comparison.
 
@@ -82,7 +76,6 @@ int str_cmp(const char *a, const char *b) {
     return strcmp(a, b);
 }
 
-// ─── file I/O ─────────────────────────────────────────────────────────────────
 // files are represented as long (which is really a FILE* cast to long).
 // not pretty but it works and lpp doesn't have pointers yet.
 
