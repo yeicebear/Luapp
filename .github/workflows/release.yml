@@ -10,8 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install musl
-        run: sudo apt-get install -y musl-tools
+      - name: Install deps
+        run: sudo apt-get install -y musl-tools lua5.4 luarocks
+      - name: Install luastatic
+        run: sudo luarocks install luastatic
       - name: Build QBE
         run: make -C qbe
       - name: Build Lua
@@ -41,6 +43,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install deps
+        run: brew install lua luarocks
+      - name: Install luastatic
+        run: luarocks install luastatic
       - name: Build QBE
         run: make -C qbe
       - name: Build Lua
