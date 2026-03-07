@@ -12,7 +12,7 @@ Install [WSL](https://learn.microsoft.com/en-us/windows/wsl/install), then run t
 
 **requirements:** `cc` (gcc or clang) must be in your PATH. (Default on Linux. For MacOS, just run the script. It'll prompt you to install it.)
 
-# TO SEE FILE CONTENTS (IF U DONT TRUST ME, I DONT BLAME U.)
+# TO SEE FILE CONTENTS 
 
 ```
 curl -fsSL https://raw.githubusercontent.com/yeicebear/Luapp/main/install.sh | sh
