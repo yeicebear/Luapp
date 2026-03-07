@@ -1,5 +1,5 @@
 # HOW TO INSTALL
--# yeah we being straight to the point this time
+<small>we finna being straight to the point</small>
 
 
 **Linux / macOS**
