@@ -18,10 +18,10 @@ jobs:
         run: make -C qbe
       - name: Build Lua (W)
         run: make -C lua-5.4.7 linux CC=musl-gcc
-      - name: Build lpp(W++)
+      - name: Build lpp
         run: |
           cd src
-          luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a -- -I../lua-5.4.7/src
+          CC="musl-gcc -I../lua-5.4.7/src" luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a
           cd ..
           musl-gcc -static -o lpp src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm -ldl
