@@ -25,7 +25,7 @@ local function lpp_find_file(name)
     end
 end
 
--- try to install SDL2 if it's missing
+-- platform hopping god slopping dih jorkin 'add sdl2 if missing, works on both blyatforms'
 local function lpp_ensure_sdl2()
     if os.execute("pkg-config --exists sdl2 2>/dev/null") then return true end
     io.stderr:write("lpp: SDL2 not found, trying to install it...\n")
