@@ -33,7 +33,6 @@ local function lpp_ensure_sdl2()
     if uname == "Darwin" then
         os.execute("brew install sdl2 sdl2_ttf")
     else
-        -- try common linux package managers
         if os.execute("which apt-get > /dev/null 2>&1") then
             os.execute("sudo apt-get install -y libsdl2-dev libsdl2-ttf-dev")
         elseif os.execute("which pacman > /dev/null 2>&1") then
@@ -100,8 +99,9 @@ SOFTWARE.]])
             print("  --help       you're looking at it")
             print("")
             print("stdlib:")
-            print("  linkto \"std\"      input, rand, sleep, time")
-            print("  linkto \"gamelib\"  SDL2 canvas, text, input")
+            print("  linkto \"std\"               input, rand, sleep, time, print")
+            print("  linkto \"gamelib\"           SDL2 canvas, text, input")
+            print("  linkto \"../utils/foo.lpp\"  import another lpp file")
             print("")
             os.exit(0)
         else
@@ -123,6 +123,38 @@ local ok, err = pcall(function()
     fh:close()
 
     local lpp_ast = lpp_parse(lpp_tokenize(src))
+
+    -- merge any linkto "*.lpp" files into the AST before analyze
+    local function lpp_merge_lpp_file(ast, path)
+        local f = io.open(path, "r")
+        if not f then error("linkto: can't open '"..path.."'") end
+        local src2 = f:read("*all"); f:close()
+        local ast2 = lpp_parse(lpp_tokenize(src2))
+        -- merge functions
+        for i=1,#ast2.funcs   do ast.funcs[#ast.funcs+1]     = ast2.funcs[i]   end
+        -- merge externs
+        for i=1,#ast2.externs do ast.externs[#ast.externs+1] = ast2.externs[i] end
+        -- merge further linktos (but not lpp files recursively to avoid loops)
+        for i=1,#ast2.links do
+            if not ast2.links[i].islpp then
+                ast.links[#ast.links+1] = ast2.links[i]
+            end
+        end
+    end
+
+    -- resolve lpp file imports relative to the input file's directory
+    local lpp_indir = lpp_infile:match("^(.*)/") or "."
+    for i=1,#lpp_ast.links do
+        local lk = lpp_ast.links[i]
+        if lk.islpp then
+            local path = lk.libname
+            if not path:match("^/") then
+                path = lpp_indir.."/"..path
+            end
+            lpp_merge_lpp_file(lpp_ast, path)
+        end
+    end
+
     lpp_analyze(lpp_ast)
     local lpp_ssa = lpp_codegen(lpp_ast)
 
@@ -142,18 +174,20 @@ local ok, err = pcall(function()
     local needs_sdl   = false
 
     for i=1,#lpp_ast.links do
-        local libname = lpp_ast.links[i].libname
-        local lib     = lpp_known_libs[libname]
-        if lib then
-            local path = lpp_find_file(lib.cfile)
-            if path then
-                extra_c[#extra_c+1] = path
+        local lk = lpp_ast.links[i]
+        if not lk.islpp then
+            local lib = lpp_known_libs[lk.libname]
+            if lib then
+                local path = lpp_find_file(lib.cfile)
+                if path then
+                    extra_c[#extra_c+1] = path
+                else
+                    io.stderr:write("lpp: warning: can't find "..lib.cfile.." for linkto \""..lk.libname.."\"\n")
+                end
+                if lib.sdl then needs_sdl = true end
             else
-                io.stderr:write("lpp: warning: can't find "..lib.cfile.." for linkto \""..libname.."\"\n")
+                io.stderr:write("lpp: warning: unknown library \""..lk.libname.."\"\n")
             end
-            if lib.sdl then needs_sdl = true end
-        else
-            io.stderr:write("lpp: warning: unknown library \""..libname.."\"\n")
         end
     end
 

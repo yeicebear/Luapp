@@ -33,3 +33,4 @@ int sleep_ms(int ms) {
     nanosleep(&t, NULL);
     return 0;
 }
+void print_float(double x) { printf("%f\n", x); }

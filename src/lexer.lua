@@ -5,13 +5,12 @@ local function lpp_tokenize(src)
     local lpp_tokbuf = {}
     local lpp_pos = 1
 
-    -- keywords that become their own token type instead of IDENT
-    -- "print" is intentionally NOT here so it parses like a normal call
     local lpp_kwds = {
         ["func"]=1,   ["local"]=1,  ["if"]=1,     ["else"]=1,
         ["while"]=1,  ["return"]=1, ["break"]=1,
         ["int"]=1,    ["bool"]=1,   ["true"]=1,   ["false"]=1,
-        ["extern"]=1, ["linkto"]=1,
+        ["extern"]=1, ["linkto"]=1, ["float"]=1,  ["str"]=1,
+        ["case"]=1,   ["struct"]=1,
     }
 
     local function lpp_pushtok(tag, v)
@@ -25,27 +24,34 @@ local function lpp_tokenize(src)
             lpp_pos = lpp_pos+1
 
         elseif src:sub(lpp_pos, lpp_pos+1) == "//" then
-            -- eat the whole line comment
             while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos) ~= "\n" do
                 lpp_pos = lpp_pos+1
             end
 
         elseif c == '"' then
-            -- string literal
             lpp_pos = lpp_pos+1
             local s = lpp_pos
             while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos) ~= '"' do
+                if src:sub(lpp_pos,lpp_pos) == '\\' then lpp_pos = lpp_pos+1 end
                 lpp_pos = lpp_pos+1
             end
             lpp_pushtok("STRING", src:sub(s, lpp_pos-1))
-            lpp_pos = lpp_pos+1  -- eat closing "
+            lpp_pos = lpp_pos+1
 
         elseif c:match("%d") then
             local s = lpp_pos
             while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos):match("%d") do
                 lpp_pos = lpp_pos+1
             end
-            lpp_pushtok("NUMBER", tonumber(src:sub(s, lpp_pos-1)))
+            if lpp_pos <= #src and src:sub(lpp_pos,lpp_pos) == "." then
+                lpp_pos = lpp_pos+1
+                while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos):match("%d") do
+                    lpp_pos = lpp_pos+1
+                end
+                lpp_pushtok("FLOAT", tonumber(src:sub(s, lpp_pos-1)))
+            else
+                lpp_pushtok("NUMBER", tonumber(src:sub(s, lpp_pos-1)))
+            end
 
         elseif c:match("[%a_]") then
             local s = lpp_pos
@@ -56,11 +62,10 @@ local function lpp_tokenize(src)
             if lpp_kwds[word] then lpp_pushtok(word:upper())
             else lpp_pushtok("IDENT", word) end
 
-        -- two-char operators, must check before single-char
-        elseif src:sub(lpp_pos,lpp_pos+1) == "==" then lpp_pushtok("EQ");  lpp_pos=lpp_pos+2
-        elseif src:sub(lpp_pos,lpp_pos+1) == "!=" then lpp_pushtok("NEQ"); lpp_pos=lpp_pos+2
-        elseif src:sub(lpp_pos,lpp_pos+1) == "<=" then lpp_pushtok("LE");  lpp_pos=lpp_pos+2
-        elseif src:sub(lpp_pos,lpp_pos+1) == ">=" then lpp_pushtok("GE");  lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "==" then lpp_pushtok("EQ");    lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "!=" then lpp_pushtok("NEQ");   lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "<=" then lpp_pushtok("LE");    lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == ">=" then lpp_pushtok("GE");    lpp_pos=lpp_pos+2
 
         elseif c == "=" then lpp_pushtok("ASSIGN"); lpp_pos=lpp_pos+1
         elseif c == ":" then lpp_pushtok("COLON");  lpp_pos=lpp_pos+1
@@ -68,6 +73,9 @@ local function lpp_tokenize(src)
         elseif c == ")" then lpp_pushtok("RPAREN"); lpp_pos=lpp_pos+1
         elseif c == "{" then lpp_pushtok("LBRACE"); lpp_pos=lpp_pos+1
         elseif c == "}" then lpp_pushtok("RBRACE"); lpp_pos=lpp_pos+1
+        elseif c == "[" then lpp_pushtok("LBRACK"); lpp_pos=lpp_pos+1
+        elseif c == "]" then lpp_pushtok("RBRACK"); lpp_pos=lpp_pos+1
+        elseif c == "." then lpp_pushtok("DOT");    lpp_pos=lpp_pos+1
         elseif c == "," then lpp_pushtok("COMMA");  lpp_pos=lpp_pos+1
         elseif c == "+" then lpp_pushtok("PLUS");   lpp_pos=lpp_pos+1
         elseif c == "-" then lpp_pushtok("MINUS");  lpp_pos=lpp_pos+1
@@ -77,7 +85,7 @@ local function lpp_tokenize(src)
         elseif c == ">" then lpp_pushtok("GT");     lpp_pos=lpp_pos+1
         elseif c == "<" then lpp_pushtok("LT");     lpp_pos=lpp_pos+1
         elseif c == "!" then lpp_pushtok("BANG");   lpp_pos=lpp_pos+1
-        else lpp_pos=lpp_pos+1  -- not our problem
+        else lpp_pos=lpp_pos+1
         end
     end
 
