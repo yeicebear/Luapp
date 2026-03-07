@@ -1,5 +1,5 @@
 # HOW TO INSTALL
-<small><span style="color: gray;">we'll be straight to the point this time</span></small>
+<small><small><small>`we'll be straight to the point this time`</small></small></small>
 
 
 
