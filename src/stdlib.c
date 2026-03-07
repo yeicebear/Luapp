@@ -1,5 +1,5 @@
 // lpp standard library
-// the stuff that doesn't need SDL2. just C, stdio, and a little malloc.
+// the stuff that doesn't need SDL2. just C proper imp, stdio, and some form of god forbidden malloc.
 // compiled into your program when you write: linkto "std"
 // you need to declare whatever you use with extern func in your lpp file.
 
