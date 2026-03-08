@@ -62,11 +62,11 @@ local function lpp_parse(lpp_toklist)
     -- binding powers for infix operators.
     -- higher number = tighter binding = done first.
     -- if you change these and things break, that's on you.
-    local lpp_bp = {
-        OR=1, AND=2,
+    local lpp_bp = { -- this is a comment
+        OR=1, AND=2, -- tis too
         EQ=3, NEQ=3, LT=3, GT=3, LE=3, GE=3,
-        PLUS=4, MINUS=4,
-        STAR=5, SLASH=5, PCENT=5,
+        PLUS=4, MINUS=4, -- to bee or to be
+        STAR=5, SLASH=5, PCENT=5, --bab (spell it out )
     }
 
     local function lpp_parse_atom()
@@ -118,18 +118,35 @@ local function lpp_parse(lpp_toklist)
             end
 
             local node = {kind="var", vname=t.val}
-
+-- hi!
             -- array index: name[expr]
             if lpp_curtag("LBRACK") then
                 lpp_advance("LBRACK")
                 local idx = lpp_climb_expr()
                 lpp_advance("RBRACK")
                 node = {kind="arr_get", vname=t.val, idx=idx}
-            -- struct field access: name.field
+            -- dot: either field access name.field or method call name.method(args)
             elseif lpp_curtag("DOT") then
                 lpp_advance("DOT")
                 local field = lpp_advance("IDENT").val
-                node = {kind="field_get", vname=t.val, field=field}
+                if lpp_curtag("LPAREN") then
+                    -- method call: obj.method(args) -> StructType_method(&obj, args)
+                    -- we don't know the struct type here, codegen resolves it via vartypes
+                    lpp_advance("LPAREN")
+                    local args = {}
+                    if not lpp_curtag("RPAREN") then
+                        args[#args+1] = lpp_climb_expr()
+                        while lpp_curtag("COMMA") do
+                            lpp_advance("COMMA")
+                            args[#args+1] = lpp_climb_expr()
+                        end
+                    end
+                    lpp_advance("RPAREN")
+                    -- receiver stored as a special first arg that codegen turns into &obj
+                    node = {kind="method_call", receiver=t.val, method=field, args=args}
+                else
+                    node = {kind="field_get", vname=t.val, field=field}
+                end
             end
 
             return node
@@ -204,6 +221,21 @@ local function lpp_parse(lpp_toklist)
             if next and next.tag == "DOT" then
                 lpp_advance("IDENT"); lpp_advance("DOT")
                 local field = lpp_advance("IDENT").val
+                -- is it a method call statement or a field assignment?
+                if lpp_curtag("LPAREN") then
+                    -- method call statement: obj.method(args)
+                    lpp_advance("LPAREN")
+                    local args = {}
+                    if not lpp_curtag("RPAREN") then
+                        args[#args+1] = lpp_climb_expr()
+                        while lpp_curtag("COMMA") do
+                            lpp_advance("COMMA")
+                            args[#args+1] = lpp_climb_expr()
+                        end
+                    end
+                    lpp_advance("RPAREN")
+                    return {kind="xstmt", expr={kind="method_call", receiver=name, method=field, args=args}}
+                end
                 lpp_advance("ASSIGN")
                 return {kind="field_set", vname=name, field=field, rhs=lpp_climb_expr()}
             end
@@ -342,16 +374,86 @@ local function lpp_parse(lpp_toklist)
         return {kind="structdef", sname=sname}
     end
 
+    -- global variable declaration at top level.
+    -- global name: Type [= expr]
+    -- scalars only — no fixed arrays, no structs (those need runtime init which globals don't have).
+    -- initializers must be compile-time constants (int/float/str literals only).
+    local function lpp_parse_global()
+        lpp_advance("GLOBAL")
+        local gname = lpp_advance("IDENT").val
+        lpp_advance("COLON")
+        local gtype = lpp_eat_type()
+        local ginit = nil
+        if lpp_curtag("ASSIGN") then
+            lpp_advance("ASSIGN")
+            ginit = lpp_climb_expr()  -- must be a literal, codegen will verify
+        end
+        return {kind="globaldef", gname=gname, gtype=gtype, init=ginit}
+    end
+
+    -- impl block: attach methods to a struct.
+    -- impl Vec2 { func length(self: Vec2): float { ... } }
+    --
+    -- desugaring rules:
+    --   - first param named "self" with the struct type becomes a hidden long (pointer to the struct)
+    --   - the method is emitted as a regular function named "StructName_methodname"
+    --   - calling obj.method(args) in expressions desugars to StructName_method(&obj, args)
+    local function lpp_parse_impl()
+        lpp_advance("IMPL")
+        local sname = lpp_advance("IDENT").val
+        lpp_advance("LBRACE")
+        local methods = {}
+        while lpp_curtok() and not lpp_curtag("RBRACE") do
+            lpp_advance("FUNC")
+            local mname = lpp_advance("IDENT").val
+            lpp_advance("LPAREN")
+            local params = {}
+            local has_self = false
+            while lpp_curtok() and not lpp_curtag("RPAREN") do
+                local pname = lpp_advance("IDENT").val
+                lpp_advance("COLON")
+                local ptype = lpp_eat_type()
+                -- "self" with the struct type becomes a long pointer under the hood
+                if pname == "self" and ptype == sname then
+                    has_self = true
+                    params[#params+1] = {pname="self", ptype="long", is_self=true, self_struct=sname}
+                else
+                    params[#params+1] = {pname=pname, ptype=ptype}
+                end
+                if lpp_curtag("COMMA") then lpp_advance("COMMA") end
+            end
+            lpp_advance("RPAREN")
+            local rtype = "int"
+            if lpp_curtag("COLON") then lpp_advance("COLON"); rtype = lpp_eat_type() end
+            local body = lpp_parse_block()
+            -- emit as a top-level function named StructName_methodname
+            methods[#methods+1] = {kind="fn", fname=sname.."_"..mname,
+                params=params, rtype=rtype, body=body, structs=lpp_structs,
+                impl_struct=sname, has_self=has_self}
+        end
+        lpp_advance("RBRACE")
+        return methods, sname
+    end
+
     -- main parse loop — only top-level things allowed here
     -- no statements at the top level, lpp is not a script
-    local lpp_prog = {kind="prog", funcs={}, externs={}, links={}, structs=lpp_structs}
+    local lpp_prog = {kind="prog", funcs={}, externs={}, links={}, structs=lpp_structs, globals={}, toplevel_stmts={}}
     while lpp_cur <= #lpp_toklist do
         local t = lpp_curtok()
         if     t.tag == "EXTERN"  then lpp_prog.externs[#lpp_prog.externs+1] = lpp_parse_extern()
         elseif t.tag == "LINKTO"  then lpp_prog.links[#lpp_prog.links+1]     = lpp_parse_linkto()
         elseif t.tag == "FUNC"    then lpp_prog.funcs[#lpp_prog.funcs+1]     = lpp_parse_funcdef()
         elseif t.tag == "STRUCT"  then lpp_parse_struct()
-        else error("lpp: expected func, extern, linkto, or struct at top level, got "..t.tag)
+        elseif t.tag == "GLOBAL"  then
+            lpp_prog.globals[#lpp_prog.globals+1] = lpp_parse_global()
+        elseif t.tag == "IMPL" then
+            local methods = lpp_parse_impl()
+            for i=1,#methods do lpp_prog.funcs[#lpp_prog.funcs+1] = methods[i] end
+        else
+            -- anything else is a top-level statement — parse it and collect it
+            -- it'll get emitted into a synthetic __init function by codegen
+            local s = lpp_parse_stmt()
+            if s then lpp_prog.toplevel_stmts[#lpp_prog.toplevel_stmts+1] = s end
         end
     end
     return lpp_prog

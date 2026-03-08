@@ -15,6 +15,7 @@
 -- all locals get alloca'd at function entry regardless of where they appear in source.
 -- this sidesteps QBE's dominance checker complaining about temporaries that aren't defined
 -- on all paths. yes it wastes stack space. no i don't care.
+-- corny ass reviewer
 --
 -- AND/OR short-circuit by spilling through a stack slot and loading after the join label.
 -- there are no phi nodes here. QBE handles SSA form internally after we give it the IR.
@@ -110,9 +111,11 @@ local lpp_lower_xpr, lpp_lower_block, lpp_lower_stmt
 local lpp_cur_vartypes = {}  -- varname -> declared type string (e.g. "int", "float", "int[10]")
 local lpp_cur_structs  = {}  -- struct name -> {fields, size}
 local lpp_fn_rtypes    = {}  -- function name -> qbe return type ("w", "d", "l")
+local lpp_globals      = {}  -- global varname -> type string (for load/store routing)
+local lpp_cur_self_struct = nil  -- if inside a method, the struct name "self" points to
 
 local function lpp_qt_for_var(vname)
-    local vt = lpp_cur_vartypes[vname]
+    local vt = lpp_cur_vartypes[vname] or lpp_globals[vname]
     if not vt then return "w" end
     return lpp_type_qt(vt)
 end
@@ -151,12 +154,23 @@ lpp_lower_xpr = function(buf, node, dest)
 
     elseif k == "var" then
         local qt = lpp_qt_for_var(node.vname)
-        if qt == "d" then
-            lpp_emit(buf, string.format("    %%%s =d loadd %%%s_slot", dest, node.vname))
-        elseif qt == "l" then
-            lpp_emit(buf, string.format("    %%%s =l loadl %%%s_slot", dest, node.vname))
+        if lpp_globals[node.vname] then
+            -- global: address is $name, load directly from it
+            if qt == "d" then
+                lpp_emit(buf, string.format("    %%%s =d loadd $%s", dest, node.vname))
+            elseif qt == "l" then
+                lpp_emit(buf, string.format("    %%%s =l loadl $%s", dest, node.vname))
+            else
+                lpp_emit(buf, string.format("    %%%s =w loadw $%s", dest, node.vname))
+            end
         else
-            lpp_emit(buf, string.format("    %%%s =w loadw %%%s_slot", dest, node.vname))
+            if qt == "d" then
+                lpp_emit(buf, string.format("    %%%s =d loadd %%%s_slot", dest, node.vname))
+            elseif qt == "l" then
+                lpp_emit(buf, string.format("    %%%s =l loadl %%%s_slot", dest, node.vname))
+            else
+                lpp_emit(buf, string.format("    %%%s =w loadw %%%s_slot", dest, node.vname))
+            end
         end
 
     elseif k == "arr_get" then
@@ -195,6 +209,9 @@ lpp_lower_xpr = function(buf, node, dest)
         -- struct field access: base_ptr + field_offset (calculated at parse time)
         local qt = lpp_cur_vartypes[node.vname] or ""
         local sname = qt:match("^struct:(.+)$") or qt
+        -- if the variable is "self" (a long/pointer) inside a method, use self_struct
+        local is_ptr_access = (lpp_cur_vartypes[node.vname] == "long" and lpp_cur_self_struct)
+        if is_ptr_access then sname = lpp_cur_self_struct end
         local sdef  = lpp_cur_structs[sname]
         if not sdef then error("lpp codegen: unknown struct '"..tostring(sname).."' for '"..node.vname.."'") end
         local fdef
@@ -204,7 +221,14 @@ lpp_lower_xpr = function(buf, node, dest)
         if not fdef then error("lpp codegen: no field '"..node.field.."' — did you spell it right?") end
         local tptr = lpp_mktmp("fldptr")
         local fqt  = lpp_basetype_qt(fdef.ftype)
-        lpp_emit(buf, string.format("    %%%s =l add %%%s_slot, %d", tptr, node.vname, fdef.offset))
+        if is_ptr_access then
+            -- self is already a pointer — load it then offset
+            local tbase = lpp_mktmp("selfbase")
+            lpp_emit(buf, string.format("    %%%s =l loadl %%%s_slot", tbase, node.vname))
+            lpp_emit(buf, string.format("    %%%s =l add %%%s, %d", tptr, tbase, fdef.offset))
+        else
+            lpp_emit(buf, string.format("    %%%s =l add %%%s_slot, %d", tptr, node.vname, fdef.offset))
+        end
         if fqt == "d" then
             lpp_emit(buf, string.format("    %%%s =d loadd %%%s", dest, tptr))
         elseif fqt == "l" then
@@ -306,6 +330,34 @@ lpp_lower_xpr = function(buf, node, dest)
         lpp_emit(buf, string.format("    %%%s =%s call $%s(%s)",
             dest, lpp_call_rqt, lpp_callee, table.concat(lpp_callargs, ", ")))
 
+    elseif k == "method_call" then
+        -- obj.method(args) -> StructName_method(l &obj, args...)
+        -- resolve struct type from vartypes
+        local receiver_type = lpp_cur_vartypes[node.receiver] or lpp_globals[node.receiver] or ""
+        local sname = receiver_type:match("^struct:(.+)$") or receiver_type
+        local callee = sname.."_"..node.method
+        local lpp_callargs = {}
+        -- first arg: pointer to receiver (its stack slot address, or global address)
+        if lpp_globals[node.receiver] then
+            lpp_callargs[1] = "l $"..node.receiver
+        else
+            lpp_callargs[1] = "l %"..node.receiver.."_slot"
+        end
+        for i=1,#node.args do
+            local arg = node.args[i]
+            local t = lpp_mktmp("marg")
+            lpp_lower_xpr(buf, arg, t)
+            local aqt = "w"
+            if arg.kind == "lit_str"   then aqt = "l"
+            elseif arg.kind == "lit_float" then aqt = "d"
+            elseif arg.kind == "var"   then aqt = lpp_qt_for_var(arg.vname) end
+            if aqt == "arr" then aqt = "l" end
+            lpp_callargs[#lpp_callargs+1] = aqt.." %"..t
+        end
+        local lpp_call_rqt = lpp_fn_rtypes[callee] or "w"
+        lpp_emit(buf, string.format("    %%%s =%s call $%s(%s)",
+            dest, lpp_call_rqt, callee, table.concat(lpp_callargs, ", ")))
+
     else
         error("lpp codegen: unhandled expression kind '"..tostring(k).."' — compiler bug")
     end
@@ -334,12 +386,22 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl)
         local t = lpp_mktmp("store")
         lpp_lower_xpr(buf, s.rhs, t)
         local qt = lpp_qt_for_var(s.vname)
-        if qt == "d" then
-            lpp_emit(buf, string.format("    stored %%%s, %%%s_slot", t, s.vname))
-        elseif qt == "l" then
-            lpp_emit(buf, string.format("    storel %%%s, %%%s_slot", t, s.vname))
+        if lpp_globals[s.vname] then
+            if qt == "d" then
+                lpp_emit(buf, string.format("    stored %%%s, $%s", t, s.vname))
+            elseif qt == "l" then
+                lpp_emit(buf, string.format("    storel %%%s, $%s", t, s.vname))
+            else
+                lpp_emit(buf, string.format("    storew %%%s, $%s", t, s.vname))
+            end
         else
-            lpp_emit(buf, string.format("    storew %%%s, %%%s_slot", t, s.vname))
+            if qt == "d" then
+                lpp_emit(buf, string.format("    stored %%%s, %%%s_slot", t, s.vname))
+            elseif qt == "l" then
+                lpp_emit(buf, string.format("    storel %%%s, %%%s_slot", t, s.vname))
+            else
+                lpp_emit(buf, string.format("    storew %%%s, %%%s_slot", t, s.vname))
+            end
         end
 
     elseif k == "arr_set" then
@@ -369,6 +431,8 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl)
     elseif k == "field_set" then
         local qt = lpp_cur_vartypes[s.vname] or ""
         local sname = qt:match("^struct:(.+)$") or qt
+        local is_ptr_access = (lpp_cur_vartypes[s.vname] == "long" and lpp_cur_self_struct)
+        if is_ptr_access then sname = lpp_cur_self_struct end
         local sdef  = lpp_cur_structs[sname]
         if not sdef then error("lpp codegen: unknown struct for '"..s.vname.."'") end
         local fdef
@@ -378,7 +442,13 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl)
         if not fdef then error("lpp codegen: no field '"..s.field.."'") end
         local tptr = lpp_mktmp("fldptr"); local tval = lpp_mktmp("fldval")
         local fqt  = lpp_basetype_qt(fdef.ftype)
-        lpp_emit(buf, string.format("    %%%s =l add %%%s_slot, %d", tptr, s.vname, fdef.offset))
+        if is_ptr_access then
+            local tbase = lpp_mktmp("selfbase")
+            lpp_emit(buf, string.format("    %%%s =l loadl %%%s_slot", tbase, s.vname))
+            lpp_emit(buf, string.format("    %%%s =l add %%%s, %d", tptr, tbase, fdef.offset))
+        else
+            lpp_emit(buf, string.format("    %%%s =l add %%%s_slot, %d", tptr, s.vname, fdef.offset))
+        end
         lpp_lower_xpr(buf, s.rhs, tval)
         if fqt == "d" then lpp_emit(buf, string.format("    stored %%%s, %%%s", tval, tptr))
         elseif fqt == "l" then lpp_emit(buf, string.format("    storel %%%s, %%%s", tval, tptr))
@@ -473,6 +543,7 @@ end
 
 local function lpp_lower_func(buf, fn)
     lpp_cur_structs = fn.structs or {}
+    lpp_cur_self_struct = fn.impl_struct or nil  -- set for methods, nil for regular functions
 
     -- build param signatures for QBE
     local lpp_paramsigs = {}
@@ -561,6 +632,14 @@ local function lpp_codegen(prog)
     lpp_nlabels = 0; lpp_ntemps = 0
     lpp_str_lits = {}; lpp_nstrs = 0
     lpp_cur_structs = prog.structs or {}
+    lpp_cur_self_struct = nil
+
+    -- build global variable registry so load/store knows to use $name
+    lpp_globals = {}
+    for i=1,#(prog.globals or {}) do
+        local g = prog.globals[i]
+        lpp_globals[g.gname] = g.gtype
+    end
 
     -- build a map of function return types so call expressions emit the right QBE type
     lpp_fn_rtypes = {}
@@ -574,8 +653,78 @@ local function lpp_codegen(prog)
     end
 
     local buf = {}
+
+    -- emit QBE data sections for global variables
+    for i=1,#(prog.globals or {}) do
+        local g = prog.globals[i]
+        local qt = lpp_type_qt(g.gtype)
+        if qt == "d" then
+            local v = (g.init and g.init.kind == "lit_float") and tostring(g.init.fval) or "d_0"
+            lpp_emit(buf, string.format("data $%s = { d %s }", g.gname, v))
+        elseif qt == "l" then
+            local v = 0
+            if g.init then
+                if g.init.kind == "lit_int" then v = g.init.ival
+                elseif g.init.kind == "lit_str" then
+                    local lbl = lpp_intern_str(g.init.sval)
+                    lpp_emit(buf, string.format("data $%s = { l $%s }", g.gname, lbl))
+                    v = nil
+                end
+            end
+            if v ~= nil then lpp_emit(buf, string.format("data $%s = { l %d }", g.gname, v)) end
+        else
+            local v = (g.init and g.init.kind == "lit_int") and g.init.ival or 0
+            lpp_emit(buf, string.format("data $%s = { w %d }", g.gname, v))
+        end
+    end
+    if #(prog.globals or {}) > 0 then lpp_emit(buf, "") end
+
+    -- if there are top-level statements, emit them as a synthetic __init function
+    local has_toplevel = prog.toplevel_stmts and #prog.toplevel_stmts > 0
+    if has_toplevel then
+        local init_fn = {
+            fname = "__init",
+            params = {},
+            rtype = "int",
+            body = {kind="block", stmts=prog.toplevel_stmts},
+            structs = prog.structs or {},
+            impl_struct = nil,
+        }
+        lpp_lower_func(buf, init_fn)
+        lpp_emit(buf, "")
+    end
+
+    -- check if a user-defined main exists
+    local has_main = false
     for i=1,#prog.funcs do
-        lpp_lower_func(buf, prog.funcs[i])
+        if prog.funcs[i].fname == "main" then has_main = true; break end
+    end
+
+    -- if no main but we have top-level statements, synthesize a main that just calls __init
+    if has_toplevel and not has_main then
+        local auto_main = {
+            fname = "main",
+            params = {},
+            rtype = "int",
+            body = {kind="block", stmts={
+                {kind="xstmt", expr={kind="call", fname="__init", args={}}},
+                {kind="ret", val={kind="lit_int", ival=0}},
+            }},
+            structs = prog.structs or {},
+            impl_struct = nil,
+        }
+        lpp_lower_func(buf, auto_main)
+        lpp_emit(buf, "")
+    end
+
+    for i=1,#prog.funcs do
+        local fn = prog.funcs[i]
+        -- if this is main and we have top-level statements,
+        -- inject a call to __init at the very start of its body
+        if fn.fname == "main" and has_toplevel then
+            table.insert(fn.body.stmts, 1, {kind="xstmt", expr={kind="call", fname="__init", args={}}})
+        end
+        lpp_lower_func(buf, fn)
         lpp_emit(buf, "")
     end
 

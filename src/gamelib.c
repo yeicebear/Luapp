@@ -7,6 +7,7 @@
 // also duplicates print_int, rand_int, sleep_ms etc from stdlib
 // so you don't have to linkto both. games need those too.
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -18,7 +19,6 @@ static SDL_Renderer *ren  = NULL;
 static TTF_Font     *font = NULL;
 static int running = 0;
 
-// ─── window / canvas ──────────────────────────────────────────────────────────
 
 // open a window. call this first before anything else.
 int canvas_init(int w, int h) {
@@ -121,7 +121,6 @@ int canvas_poll(void) {
     return running;
 }
 
-// ─── keyboard ─────────────────────────────────────────────────────────────────
 // returns 1 if the key is held down, 0 if not.
 // key codes:
 //   0=UP  1=DOWN  2=LEFT  3=RIGHT
@@ -148,7 +147,6 @@ int canvas_key(int k) {
     return ks[sc] ? 1 : 0;
 }
 
-// ─── mouse ────────────────────────────────────────────────────────────────────
 
 int canvas_mouse_x(void) {
     int x, y;
@@ -185,7 +183,6 @@ int canvas_quit(void) {
     return 0;
 }
 
-// ─── rand / time / sleep ──────────────────────────────────────────────────────
 // duplicated from stdlib.c so linkto "gamelib" is self-contained.
 // don't linkto both or you'll get duplicate symbol errors.
 
