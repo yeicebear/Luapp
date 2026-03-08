@@ -34,10 +34,11 @@ jobs:
           cp src/stdlib.c dist/
           cp src/gamelib.c dist/
           tar -czf lpp-linux-x86_64.tar.gz -C dist lpp qbe runtime.c stdlib.c gamelib.c
-      - name: Release
-        uses: softprops/action-gh-release@v1
+      - name: Upload main.luastatic.c
+        uses: actions/upload-artifact@v4
         with:
-          files: lpp-linux-x86_64.tar.gz
+          name: luastatic-c
+          path: src/main.luastatic.c
 
   build-macos:
     runs-on: macos-latest
@@ -76,10 +77,13 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: lpp-darwin-arm64.tar.gz
+          files: |
+            lpp-linux-x86_64.tar.gz
+            lpp-darwin-arm64.tar.gz
 
   build-windows:
     runs-on: windows-latest
+    needs: build-linux
     steps:
       - uses: actions/checkout@v4
       - name: Install MSYS2 for windooo
@@ -88,25 +92,23 @@ jobs:
           msystem: MINGW64
           install: >-
             mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-lua
             make
             git
-            unzip
-      - name: Download luastatic for windooo
-        shell: msys2 {0}
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/ers35/luastatic/master/luastatic.lua -o /usr/bin/luastatic.lua
+            zip
+      - name: Download main.luastatic.c from linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: luastatic-c
+          path: src/
       - name: Build QBE windooo
         shell: msys2 {0}
         run: make -C qbe
+      - name: Build Lua windooo
+        shell: msys2 {0}
+        run: make -C lua-5.4.7 mingw
       - name: Build lpp windooo
         shell: msys2 {0}
         run: |
-          cd lua-5.4.7
-          make mingw
-          cd ../src
-          lua /usr/bin/luastatic.lua main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a
-          cd ..
           gcc -o lpp.exe src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm
       - name: Package
