@@ -82,7 +82,6 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install MSYS2 for windooo
         uses: msys2/setup-msys2@v2
         with:
@@ -93,15 +92,12 @@ jobs:
             mingw-w64-x86_64-luarocks
             make
             git
-
       - name: Install luastatic for windooo
         shell: msys2 {0}
         run: luarocks install luastatic
-
       - name: Build QBE windooo
         shell: msys2 {0}
         run: make -C qbe
-
       - name: Build lpp windooo
         shell: msys2 {0}
         run: |
@@ -112,7 +108,6 @@ jobs:
           cd ..
           gcc -o lpp.exe src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm
-
       - name: Package
         shell: msys2 {0}
         run: |
@@ -124,7 +119,6 @@ jobs:
           cp src/gamelib.c dist/
           cd dist
           zip ../lpp-windows-x86_64.zip lpp.exe qbe.exe runtime.c stdlib.c gamelib.c
-
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
