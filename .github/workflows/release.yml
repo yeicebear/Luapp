@@ -92,12 +92,10 @@ jobs:
             make
             git
             unzip
-      - name: Install luastatic for windooo
+      - name: Download luastatic for windooo
         shell: msys2 {0}
         run: |
           curl -fsSL https://raw.githubusercontent.com/ers35/luastatic/master/luastatic.lua -o /usr/bin/luastatic.lua
-          printf '#!/usr/bin/env lua\n' | cat - /usr/bin/luastatic.lua > /usr/bin/luastatic
-          chmod +x /usr/bin/luastatic
       - name: Build QBE windooo
         shell: msys2 {0}
         run: make -C qbe
@@ -107,7 +105,7 @@ jobs:
           cd lua-5.4.7
           make mingw
           cd ../src
-          luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a
+          lua /usr/bin/luastatic.lua main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a
           cd ..
           gcc -o lpp.exe src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm
