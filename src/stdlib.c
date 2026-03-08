@@ -2,11 +2,31 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdint.h>   // intptr_t — pointer-sized int on every platform including windows
 
 // welcome to the stdlib
 // stuf that doesnt need sdl2. that's in gamelib you dedbeet!
 // nothing here is smart
 // if u came looking for cleverness go back to lua
+
+// lpp's "long" type maps to intptr_t in C.
+// on linux/mac long is already 64-bit so it was fine.
+// on windows mingw long is 32-bit even on 64-bit targets, which truncates pointers.
+// intptr_t is always the right size for a pointer on every platform.
+// this is the fix. thats it.
+#define lpp_ptr intptr_t
+
+// windows (mingw) doesnt have nanosleep — use windows Sleep() instead
+#ifdef _WIN32
+#include <windows.h>
+static void lpp_sleep_impl(int ms){ Sleep(ms > 0 ? ms : 0); }
+#else
+static void lpp_sleep_impl(int ms){
+    struct timespec t={ms/1000,(ms%1000)*1000000L};
+    nanosleep(&t,NULL);
+}
+#endif
+
 
 static int lpp_seeded = 0;
 
@@ -15,7 +35,7 @@ static int lpp_seeded = 0;
 // yes this is just printf wrappers
 void print_int(int x){ printf("%d\n",x); }
 void print_float(double x){ printf("%f\n",x); }
-void print_long(long x){ printf("%ld\n",x); }
+void print_long(lpp_ptr x){ printf("%lld\n",(long long)x); }
 
 void print_str(const char *s){
     if(s) puts(s);
@@ -63,10 +83,13 @@ int rand_int(int mn,int mx){
 
 // time since start ish
 int time_ms(void){
+#ifdef _WIN32
+    return (int)GetTickCount();
+#else
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC,&t);
-
     return (int)(t.tv_sec*1000+t.tv_nsec/1000000);
+#endif
 }
 
 
@@ -75,9 +98,7 @@ int time_ms(void){
 int sleep_ms(int ms){
     if(ms<=0) return 0;
 
-    struct timespec t={ms/1000,(ms%1000)*1000000L};
-    nanosleep(&t,NULL);
-
+    lpp_sleep_impl(ms);
     return 0;
 }
 
@@ -100,39 +121,39 @@ int str_cmp(const char *a,const char *b){
 
 
 // file stuff
-// file handles are longs
-// yes its ugly
-long file_open(const char *path,const char *mode){
+// file handles are lpp_ptr (intptr_t)
+// yes its ugly. no, using long was worse on windows.
+lpp_ptr file_open(const char *path,const char *mode){
     FILE *f=fopen(path,mode);
-    return (long)f;
+    return (lpp_ptr)f;
 }
 
-int file_close(long fptr){
+int file_close(lpp_ptr fptr){
     if(!fptr) return -1;
     return fclose((FILE*)fptr);
 }
 
-int file_read_char(long fptr){
+int file_read_char(lpp_ptr fptr){
     if(!fptr) return -1;
     return fgetc((FILE*)fptr);
 }
 
-int file_write_char(long fptr,int c){
+int file_write_char(lpp_ptr fptr,int c){
     if(!fptr) return -1;
     return fputc(c,(FILE*)fptr);
 }
 
-int file_write_str(long fptr,const char *s){
+int file_write_str(lpp_ptr fptr,const char *s){
     if(!fptr||!s) return -1;
     return fputs(s,(FILE*)fptr);
 }
 
-int file_write_int(long fptr,int n){
+int file_write_int(lpp_ptr fptr,int n){
     if(!fptr) return -1;
     return fprintf((FILE*)fptr,"%d",n);
 }
 
-int file_eof(long fptr){
+int file_eof(lpp_ptr fptr){
     if(!fptr) return 1;
     return feof((FILE*)fptr);
 }
@@ -144,17 +165,17 @@ int file_eof(long fptr){
 #define LPP_ARR_HDR 24
 
 typedef struct{
-    long len;
+    long len;       // these are real integers, not pointers. long is fine here.
     long cap;
     long elemsize;
     char data[];
 }lpp_dynarray;
 
-static lpp_dynarray *lpp_arr_hdr(long data){
+static lpp_dynarray *lpp_arr_hdr(lpp_ptr data){
     return (lpp_dynarray*)(data-LPP_ARR_HDR);
 }
 
-long arr_new(int elemsize){
+lpp_ptr arr_new(int elemsize){
     long cap=8;
 
     lpp_dynarray *a=malloc(sizeof(lpp_dynarray)+cap*elemsize);
@@ -164,17 +185,17 @@ long arr_new(int elemsize){
     a->cap=cap;
     a->elemsize=elemsize;
 
-    return (long)a->data;
+    return (lpp_ptr)a->data;
 }
 
-long arr_push_int(long data,int val){
+lpp_ptr arr_push_int(lpp_ptr data,int val){
     lpp_dynarray *a=lpp_arr_hdr(data);
 
     if(a->len>=a->cap){
         a->cap*=2;
         a=realloc(a,sizeof(lpp_dynarray)+a->cap*a->elemsize);
         if(!a) return 0;
-        data=(long)a->data;
+        data=(lpp_ptr)a->data;
     }
 
     ((int*)a->data)[a->len]=val;
@@ -183,30 +204,30 @@ long arr_push_int(long data,int val){
     return data;
 }
 
-long arr_push_long(long data,long val){
+lpp_ptr arr_push_long(lpp_ptr data,lpp_ptr val){
     lpp_dynarray *a=lpp_arr_hdr(data);
 
     if(a->len>=a->cap){
         a->cap*=2;
         a=realloc(a,sizeof(lpp_dynarray)+a->cap*a->elemsize);
         if(!a) return 0;
-        data=(long)a->data;
+        data=(lpp_ptr)a->data;
     }
 
-    ((long*)a->data)[a->len]=val;
+    ((lpp_ptr*)a->data)[a->len]=val;
     a->len++;
 
     return data;
 }
 
-long arr_push_float(long data,double val){
+lpp_ptr arr_push_float(lpp_ptr data,double val){
     lpp_dynarray *a=lpp_arr_hdr(data);
 
     if(a->len>=a->cap){
         a->cap*=2;
         a=realloc(a,sizeof(lpp_dynarray)+a->cap*a->elemsize);
         if(!a) return 0;
-        data=(long)a->data;
+        data=(lpp_ptr)a->data;
     }
 
     ((double*)a->data)[a->len]=val;
@@ -215,12 +236,12 @@ long arr_push_float(long data,double val){
     return data;
 }
 
-int arr_len(long data){
+int arr_len(lpp_ptr data){
     if(!data) return 0;
     return (int)lpp_arr_hdr(data)->len;
 }
 
-void arr_free(long data){
+void arr_free(lpp_ptr data){
     if(!data) return;
     free(lpp_arr_hdr(data));
 }
@@ -228,26 +249,26 @@ void arr_free(long data){
 
 // raw memory
 // pointer soup
-long mem_alloc(int n){
+lpp_ptr mem_alloc(int n){
     if(n<=0) return 0;
-    return (long)calloc(1,n);
+    return (lpp_ptr)calloc(1,n);
 }
 
-void mem_free(long ptr){
+void mem_free(lpp_ptr ptr){
     if(ptr) free((void*)ptr);
 }
 
-void mem_copy(long dst,long src,int n){
+void mem_copy(lpp_ptr dst,lpp_ptr src,int n){
     if(!dst||!src||n<=0) return;
     memcpy((void*)dst,(const void*)src,n);
 }
 
-void mem_move(long dst,long src,int n){
+void mem_move(lpp_ptr dst,lpp_ptr src,int n){
     if(!dst||!src||n<=0) return;
     memmove((void*)dst,(const void*)src,n);
 }
 
-void mem_set(long ptr,int val,int n){
+void mem_set(lpp_ptr ptr,int val,int n){
     if(!ptr||n<=0) return;
     memset((void*)ptr,val&0xFF,n);
 }
@@ -263,11 +284,11 @@ typedef struct{
     char data[];
 }lpp_sb;
 
-static lpp_sb *lpp_sb_hdr(long h){
+static lpp_sb *lpp_sb_hdr(lpp_ptr h){
     return (lpp_sb*)(h-LPP_SB_HDR);
 }
 
-long sb_new(void){
+lpp_ptr sb_new(void){
     int cap=64;
 
     lpp_sb *sb=malloc(LPP_SB_HDR+cap+1);
@@ -277,10 +298,10 @@ long sb_new(void){
     sb->cap=cap;
     sb->data[0]='\0';
 
-    return (long)sb->data;
+    return (lpp_ptr)sb->data;
 }
 
-long sb_append(long h,const char *s){
+lpp_ptr sb_append(lpp_ptr h,const char *s){
     if(!h||!s) return h;
 
     int n=(int)strlen(s);
@@ -294,7 +315,7 @@ long sb_append(long h,const char *s){
         if(!sb) return 0;
 
         sb->cap=ncap;
-        h=(long)sb->data;
+        h=(lpp_ptr)sb->data;
     }
 
     memcpy(sb->data+sb->len,s,n+1);
@@ -303,11 +324,11 @@ long sb_append(long h,const char *s){
     return h;
 }
 
-const char *sb_get(long h){
+const char *sb_get(lpp_ptr h){
     if(!h) return "";
     return lpp_sb_hdr(h)->data;
 }
 
-void sb_free(long h){
+void sb_free(lpp_ptr h){
     if(h) free(lpp_sb_hdr(h));
 }

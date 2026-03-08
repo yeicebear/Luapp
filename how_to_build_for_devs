@@ -1,0 +1,14 @@
+cd ~/Documents/Luapp
+make -C lua-5.4.7 clean
+make -C lua-5.4.7 linux CC=musl-gcc
+cd src && luastatic main.lua lexer.lua parser.lua analyze.lua codegen.lua ../lua-5.4.7/src/liblua.a && cd ..
+musl-gcc -static -o lpp src/main.luastatic.c src/runtime.c -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm -ldl
+
+
+git add .
+git commit -m "made it cuter"
+git push
+
+
+git tag v0.4.1
+git push --tags
