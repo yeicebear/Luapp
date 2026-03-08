@@ -89,12 +89,15 @@ jobs:
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-lua
-            mingw-w64-x86_64-luarocks
             make
             git
+            unzip
       - name: Install luastatic for windooo
         shell: msys2 {0}
-        run: luarocks install luastatic
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/ers35/luastatic/master/luastatic.lua -o /usr/local/bin/luastatic
+          echo '#!/usr/bin/env lua' | cat - /usr/local/bin/luastatic > /tmp/ls && mv /tmp/ls /usr/local/bin/luastatic
+          chmod +x /usr/local/bin/luastatic
       - name: Build QBE windooo
         shell: msys2 {0}
         run: make -C qbe
