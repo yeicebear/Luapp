@@ -8,7 +8,7 @@ local function lpp_tokenize(src)
     local lpp_pos = 1
 
     -- every keyword that gets its own token type instead of being an IDENT.
-    -- "print" is NOT here on purpose — it parses like a normal function call.
+    -- "print" is NOT here on purpose!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! it parses like a normal function call.
     local lpp_kwds = {
         ["func"]=1,   ["local"]=1,  ["if"]=1,     ["else"]=1,
         ["while"]=1,  ["return"]=1, ["break"]=1,
