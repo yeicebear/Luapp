@@ -122,8 +122,9 @@ jobs:
           cp src/runtime.c dist/
           cp src/stdlib.c dist/
           cp src/gamelib.c dist/
+          cp install.bat dist/
           cd dist
-          zip ../lpp-windows-x86_64.zip lpp.exe qbe.exe runtime.c stdlib.c gamelib.c
+          zip ../lpp-windows-x86_64.zip lpp.exe qbe.exe runtime.c stdlib.c gamelib.c install.bat
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
