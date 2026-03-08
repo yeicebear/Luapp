@@ -11,9 +11,18 @@ if type(lpp_parse)    == "table" then lpp_parse    = lpp_parse.lpp_parse    or l
 if type(lpp_analyze)  == "table" then lpp_analyze  = lpp_analyze.lpp_analyze or lpp_analyze.analyze    end
 if type(lpp_codegen)  == "table" then lpp_codegen  = lpp_codegen.lpp_codegen or lpp_codegen.codegen    end
 
+-- figure out if we're on windows once, use it everywhere
+local lpp_is_windows = package.config:sub(1,1) == "\\"
+
+-- home directory works differently on windows vs everyone else
+local function lpp_home()
+    return os.getenv("USERPROFILE") or os.getenv("HOME") or "."
+end
+
 local function lpp_find_file(name)
     local candidates = {
-        os.getenv("HOME").."/.local/lib/lpp/"..name,
+        lpp_home().."/.lpp/lib/"..name,         -- windows install location
+        lpp_home().."/.local/lib/lpp/"..name,   -- linux/mac install location
         "/usr/local/lib/lpp/"..name,
         "./src/"..name,
         "./lib/"..name,
@@ -27,6 +36,13 @@ end
 
 -- platform hopping god slopping dih jorkin 'add sdl2 if missing, works on both blyatforms'
 local function lpp_ensure_sdl2()
+    if lpp_is_windows then
+        -- on windows SDL2 needs to be installed manually or via msys2
+        -- we can't auto-install it reliably so just warn them
+        io.stderr:write("lpp: gamelib on windows requires SDL2. install via MSYS2:\n")
+        io.stderr:write("     pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_ttf\n")
+        return false
+    end
     if os.execute("pkg-config --exists sdl2 2>/dev/null") then return true end
     io.stderr:write("lpp: SDL2 not found, trying to install it...\n")
     local uname = io.popen("uname"):read("*l")
@@ -52,7 +68,10 @@ local lpp_known_libs = {
     ["gamelib"] = { cfile="gamelib.c", sdl=true  },
 }
 
-local lpp_infile, lpp_outfile, lpp_do_run = nil, "a.out", false
+-- default output name — .exe on windows, no extension on unix
+local lpp_default_out = lpp_is_windows and "a.exe" or "a.out"
+local lpp_infile, lpp_outfile, lpp_do_run = nil, lpp_default_out, false
+
 do
     local i = 1
     local argv = arg or {}
@@ -61,7 +80,7 @@ do
         elseif argv[i] == "--run"   then lpp_do_run = true; i = i+1
         elseif argv[i] == "-r"      then lpp_do_run = true; i = i+1
         elseif argv[i] == "--version" then
-            print("lpp 0.2.0")
+            print("lpp 0.4.0")
             os.exit(0)
         elseif argv[i] == "--license" then
             print([[MIT License
@@ -130,11 +149,8 @@ local ok, err = pcall(function()
         if not f then error("linkto: can't open '"..path.."'") end
         local src2 = f:read("*all"); f:close()
         local ast2 = lpp_parse(lpp_tokenize(src2))
-        -- merge functions
         for i=1,#ast2.funcs   do ast.funcs[#ast.funcs+1]     = ast2.funcs[i]   end
-        -- merge externs
         for i=1,#ast2.externs do ast.externs[#ast.externs+1] = ast2.externs[i] end
-        -- merge further linktos (but not lpp files recursively to avoid loops)
         for i=1,#ast2.links do
             if not ast2.links[i].islpp then
                 ast.links[#ast.links+1] = ast2.links[i]
@@ -143,13 +159,14 @@ local ok, err = pcall(function()
     end
 
     -- resolve lpp file imports relative to the input file's directory
-    local lpp_indir = lpp_infile:match("^(.*)/") or "."
+    local lpp_sep   = lpp_is_windows and "\\" or "/"
+    local lpp_indir = lpp_infile:match("^(.*)[/\\]") or "."
     for i=1,#lpp_ast.links do
         local lk = lpp_ast.links[i]
         if lk.islpp then
             local path = lk.libname
-            if not path:match("^/") then
-                path = lpp_indir.."/"..path
+            if not path:match("^[/\\]") and not path:match("^%a:") then
+                path = lpp_indir..lpp_sep..path
             end
             lpp_merge_lpp_file(lpp_ast, path)
         end
@@ -193,7 +210,11 @@ local ok, err = pcall(function()
 
     if needs_sdl then
         lpp_ensure_sdl2()
-        extra_flags[#extra_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
+        if lpp_is_windows then
+            extra_flags[#extra_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
+        else
+            extra_flags[#extra_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
+        end
     end
 
     local wrap_path = os.tmpname()..".c"
@@ -201,7 +222,11 @@ local ok, err = pcall(function()
     wf:write("extern int lang_main();\nint main(){return lang_main();}\n")
     wf:close()
 
-    local cc_cmd = string.format("cc %s %s %s -o %s %s",
+    -- use gcc on windows (cc doesn't exist), cc on unix
+    local lpp_cc = lpp_is_windows and "gcc" or "cc"
+
+    local cc_cmd = string.format("%s %s %s %s -o %s %s",
+        lpp_cc,
         lpp_asm_path,
         wrap_path,
         table.concat(extra_c, " "),
@@ -211,7 +236,14 @@ local ok, err = pcall(function()
     local cc_ok = os.execute(cc_cmd)
     if not cc_ok then error("cc failed — linker error") end
 
-    if lpp_do_run then os.execute("./"..lpp_outfile) end
+    -- run itttt on windows just use the name directly, no ./
+    if lpp_do_run then
+        if lpp_is_windows then
+            os.execute(lpp_outfile)
+        else
+            os.execute("./"..lpp_outfile)
+        end
+    end
 end)
 
 if not ok then
