@@ -34,6 +34,10 @@ jobs:
           cp src/stdlib.c dist/
           cp src/gamelib.c dist/
           tar -czf lpp-linux-x86_64.tar.gz -C dist lpp qbe runtime.c stdlib.c gamelib.c
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: lpp-linux-x86_64.tar.gz
       - name: Upload main.luastatic.c
         uses: actions/upload-artifact@v4
         with:
@@ -77,9 +81,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            lpp-linux-x86_64.tar.gz
-            lpp-darwin-arm64.tar.gz
+          files: lpp-darwin-arm64.tar.gz
 
   build-windows:
     runs-on: windows-latest
