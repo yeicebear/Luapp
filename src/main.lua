@@ -11,18 +11,16 @@ if type(lpp_parse)    == "table" then lpp_parse    = lpp_parse.lpp_parse    or l
 if type(lpp_analyze)  == "table" then lpp_analyze  = lpp_analyze.lpp_analyze or lpp_analyze.analyze    end
 if type(lpp_codegen)  == "table" then lpp_codegen  = lpp_codegen.lpp_codegen or lpp_codegen.codegen    end
 
--- figure out if we're on windows once, use it everywhere
 local lpp_is_windows = package.config:sub(1,1) == "\\"
 
--- home directory works differently on windows vs everyone else
 local function lpp_home()
     return os.getenv("USERPROFILE") or os.getenv("HOME") or "."
 end
 
 local function lpp_find_file(name)
     local candidates = {
-        lpp_home().."/.lpp/lib/"..name,         -- windows install location
-        lpp_home().."/.local/lib/lpp/"..name,   -- linux/mac install location
+        lpp_home().."/.lpp/lib/"..name,
+        lpp_home().."/.local/lib/lpp/"..name,
         "/usr/local/lib/lpp/"..name,
         "./src/"..name,
         "./lib/"..name,
@@ -37,8 +35,6 @@ end
 -- platform hopping god slopping dih jorkin 'add sdl2 if missing, works on both blyatforms'
 local function lpp_ensure_sdl2()
     if lpp_is_windows then
-        -- on windows SDL2 needs to be installed manually or via msys2
-        -- we can't auto-install it reliably so just warn them
         io.stderr:write("lpp: gamelib on windows requires SDL2. install via MSYS2:\n")
         io.stderr:write("     pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_ttf\n")
         return false
@@ -68,7 +64,6 @@ local lpp_known_libs = {
     ["gamelib"] = { cfile="gamelib.c", sdl=true  },
 }
 
--- default output name — .exe on windows, no extension on unix
 local lpp_default_out = lpp_is_windows and "a.exe" or "a.out"
 local lpp_infile, lpp_outfile, lpp_do_run = nil, lpp_default_out, false
 
@@ -143,7 +138,6 @@ local ok, err = pcall(function()
 
     local lpp_ast = lpp_parse(lpp_tokenize(src))
 
-    -- merge any linkto "*.lpp" files into the AST before analyze
     local function lpp_merge_lpp_file(ast, path)
         local f = io.open(path, "r")
         if not f then error("linkto: can't open '"..path.."'") end
@@ -158,7 +152,6 @@ local ok, err = pcall(function()
         end
     end
 
-    -- resolve lpp file imports relative to the input file's directory
     local lpp_sep   = lpp_is_windows and "\\" or "/"
     local lpp_indir = lpp_infile:match("^(.*)[/\\]") or "."
     for i=1,#lpp_ast.links do
@@ -210,19 +203,21 @@ local ok, err = pcall(function()
 
     if needs_sdl then
         lpp_ensure_sdl2()
-        if lpp_is_windows then
-            extra_flags[#extra_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
-        else
-            extra_flags[#extra_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
-        end
+        extra_flags[#extra_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
     end
 
-    local wrap_path = os.tmpname()..".c"
+    -- os.tmpname() gives unix paths which windows can't use, so we roll our own
+    local wrap_path
+    if lpp_is_windows then
+        wrap_path = (os.getenv("TEMP") or os.getenv("TMP") or "C:\\Temp").."\\lpp_wrap_"..os.time()..".c"
+    else
+        wrap_path = os.tmpname()..".c"
+    end
+
     local wf = io.open(wrap_path, "w")
     wf:write("extern int lang_main();\nint main(){return lang_main();}\n")
     wf:close()
 
-    -- use gcc on windows (cc doesn't exist), cc on unix
     local lpp_cc = lpp_is_windows and "gcc" or "cc"
 
     local cc_cmd = string.format("%s %s %s %s -o %s %s",
@@ -236,7 +231,6 @@ local ok, err = pcall(function()
     local cc_ok = os.execute(cc_cmd)
     if not cc_ok then error("cc failed — linker error") end
 
-    -- run itttt on windows just use the name directly, no ./
     if lpp_do_run then
         if lpp_is_windows then
             os.execute(lpp_outfile)
