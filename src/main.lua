@@ -126,7 +126,7 @@ end
 
 if not lpp_infile then
     io.stderr:write("lpp: no input file given\n")
-    io.stderr:write("     usage: lpp <file.lpp> [-o output] [--run]\n")
+    io.stderr:write("     [usage] lpp <file.lpp> [-o output] [--run]\n")
     os.exit(1)
 end
 
@@ -229,7 +229,7 @@ local ok, err = pcall(function()
         table.concat(extra_flags, " "))
 
     local cc_ok = os.execute(cc_cmd)
-    if not cc_ok then error("cc failed — linker error") end
+    if not cc_ok then error("cc failed, linker is cooked") end
 
     if lpp_do_run then
         if lpp_is_windows then
