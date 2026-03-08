@@ -95,9 +95,9 @@ jobs:
       - name: Install luastatic for windooo
         shell: msys2 {0}
         run: |
-          curl -fsSL https://raw.githubusercontent.com/ers35/luastatic/master/luastatic.lua -o /usr/local/bin/luastatic
-          echo '#!/usr/bin/env lua' | cat - /usr/local/bin/luastatic > /tmp/ls && mv /tmp/ls /usr/local/bin/luastatic
-          chmod +x /usr/local/bin/luastatic
+          curl -fsSL https://raw.githubusercontent.com/ers35/luastatic/master/luastatic.lua -o /usr/bin/luastatic.lua
+          printf '#!/usr/bin/env lua\n' | cat - /usr/bin/luastatic.lua > /usr/bin/luastatic
+          chmod +x /usr/bin/luastatic
       - name: Build QBE windooo
         shell: msys2 {0}
         run: make -C qbe
