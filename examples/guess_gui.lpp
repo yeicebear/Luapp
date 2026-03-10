@@ -11,7 +11,6 @@ extern func canvas_key(k: int): int
 extern func canvas_quit(): int
 extern func rand_int(min: int, max: int): int
 extern func sleep_ms(ms: int): int
-extern func print_int(x: int): int
 extern func canvas_int(x: int, y: int, r: int, g: int, b: int, n: int): int
 
 func main(): int {
@@ -19,17 +18,37 @@ func main(): int {
     canvas_font("/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf", 26)
 
     local secret: int = rand_int(1, 100)
-    local guess: int = 50
+    local guess: int = 0
     local tries: int = 0
     local won: int = 0
-    local up_held: int = 0
-    local down_held: int = 0
+
+    local k0h: int = 0
+    local k1h: int = 0
+    local k2h: int = 0
+    local k3h: int = 0
+    local k4h: int = 0
+    local k5h: int = 0
+    local k6h: int = 0
+    local k7h: int = 0
+    local k8h: int = 0
+    local k9h: int = 0
+    local bkh: int = 0
 
     while canvas_poll() {
         canvas_clear(15, 15, 25)
 
-        local up: int = canvas_key(0)
-        local dn: int = canvas_key(1)
+        local k0: int = canvas_key(10)
+        local k1: int = canvas_key(11)
+        local k2: int = canvas_key(12)
+        local k3: int = canvas_key(13)
+        local k4: int = canvas_key(14)
+        local k5: int = canvas_key(15)
+        local k6: int = canvas_key(16)
+        local k7: int = canvas_key(17)
+        local k8: int = canvas_key(18)
+        local k9: int = canvas_key(19)
+        local bk: int = canvas_key(20)
+
         local sp: int = canvas_key(4)
         local esc: int = canvas_key(5)
 
@@ -37,22 +56,59 @@ func main(): int {
             break
         }
 
-        if up != up_held {
-            if up {
-                if guess < 100 {
-                    guess = guess + 1
-                }
-            }
-            up_held = up
+        if k0 != k0h {
+            if k0 { guess = guess * 10 }
+            k0h = k0
         }
 
-        if dn != down_held {
-            if dn {
-                if guess > 1 {
-                    guess = guess - 1
-                }
-            }
-            down_held = dn
+        if k1 != k1h {
+            if k1 { guess = guess * 10 + 1 }
+            k1h = k1
+        }
+
+        if k2 != k2h {
+            if k2 { guess = guess * 10 + 2 }
+            k2h = k2
+        }
+
+        if k3 != k3h {
+            if k3 { guess = guess * 10 + 3 }
+            k3h = k3
+        }
+
+        if k4 != k4h {
+            if k4 { guess = guess * 10 + 4 }
+            k4h = k4
+        }
+
+        if k5 != k5h {
+            if k5 { guess = guess * 10 + 5 }
+            k5h = k5
+        }
+
+        if k6 != k6h {
+            if k6 { guess = guess * 10 + 6 }
+            k6h = k6
+        }
+
+        if k7 != k7h {
+            if k7 { guess = guess * 10 + 7 }
+            k7h = k7
+        }
+
+        if k8 != k8h {
+            if k8 { guess = guess * 10 + 8 }
+            k8h = k8
+        }
+
+        if k9 != k9h {
+            if k9 { guess = guess * 10 + 9 }
+            k9h = k9
+        }
+
+        if bk != bkh {
+            if bk { guess = guess / 10 }
+            bkh = bk
         }
 
         if sp {
@@ -64,26 +120,27 @@ func main(): int {
             }
         }
 
-        canvas_text(60, 30, 180, 180, 255, "number guesser game very gay")
-        canvas_text(60, 80, 150, 150, 150, "UP/DOWN ARROW, NOT WASD Y/N STOP TWEAKING ")
-        canvas_text(60,120,150,150,150," YA'HMAR to change, SPACEBAR to guess")
+        canvas_text(60, 30, 180, 180, 255, "number guesser game!")
+        canvas_text(60, 80, 150, 150, 150, "type digits then press space")
+        canvas_text(60, 110, 150, 150, 150, "backspace deletes")
 
-        canvas_text(60, 140, 255, 255, 255, "your guess iz:")
-        canvas_int(280, 140, 100, 255, 200, guess)
+        canvas_rect(60, 140, 240, 50)
+        canvas_text(70, 150, 200, 200, 200, "guess:")
+        canvas_int(150, 150, 100, 255, 200, guess)
 
         if won == 0 {
             if guess < secret {
-                canvas_text(60, 190, 255, 180, 80, "too low ya illah")
+                canvas_text(60, 220, 255, 180, 80, "too low ya illah")
             }
             if guess > secret {
-                canvas_text(60, 190, 255, 80, 80, "too high nononon")
+                canvas_text(60, 220, 255, 80, 80, "too high nononon")
             }
         }
 
         if won {
             canvas_color(40, 120, 40)
-            canvas_rect(40, 190, 400, 70)
-            canvas_text(60, 210, 200, 255, 200, "correct! ESC to quit")
+            canvas_rect(40, 220, 420, 70)
+            canvas_text(60, 245, 200, 255, 200, "correct! ESC to quit")
         }
 
         canvas_present()
