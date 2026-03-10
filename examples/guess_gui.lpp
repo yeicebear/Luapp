@@ -1,5 +1,4 @@
 linkto "gamelib"
-linkto "std"
 extern func canvas_init(w: int, h: int): int
 extern func canvas_clear(r: int, g: int, b: int): int
 extern func canvas_rect(x: int, y: int, w: int, h: int): int

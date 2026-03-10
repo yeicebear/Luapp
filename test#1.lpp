@@ -1,0 +1,12 @@
+linkto "std";
+
+func main(): int {
+	local a: int = 10;
+	local b: int = 20;
+	print_str("hey!");
+	print_int(a)
+	print_int(a+b)
+	return 50;
+
+
+}
