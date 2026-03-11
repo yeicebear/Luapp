@@ -89,6 +89,7 @@ local lpp_int_opmap = {
     PLUS="add",  MINUS="sub",  STAR="mul",  SLASH="div",  PCENT="rem",
     EQ="ceqw",   NEQ="cnew",   GT="csgtw",  LT="csltw",
     GE="csgew",  LE="cslew",
+    AMP="and",   PIPE="or",    CARET="xor",  SHL="shl",   SHR="sar",
 }
 
 -- QBE float comparison ops (d suffix = double)
@@ -103,6 +104,7 @@ local lpp_long_opmap = {
     PLUS="add",  MINUS="sub",  STAR="mul",  SLASH="div",  PCENT="rem",
     EQ="ceql",   NEQ="cnel",   GT="csgtl",  LT="csltl",
     GE="csgel",  LE="cslel",
+    AMP="and",   PIPE="or",    CARET="xor",  SHL="shl",   SHR="sar",
 }
 
 local lpp_lower_xpr, lpp_lower_block, lpp_lower_stmt
@@ -293,6 +295,28 @@ lpp_lower_xpr = function(buf, node, dest)
             return
         end
 
+        -- string concatenation: str + str -> call sb_new, sb_append twice, sb_get
+        local function lpp_is_str_node(n)
+            if not n then return false end
+            if n.kind == "lit_str" then return true end
+            if n.kind == "var" then return (lpp_cur_vartypes[n.vname] or lpp_globals[n.vname]) == "str" end
+            return false
+        end
+        if op == "PLUS" and (lpp_is_str_node(node.lhs) or lpp_is_str_node(node.rhs)) then
+            local tsb  = lpp_mktmp("sb")
+            local tlhs = lpp_mktmp("slhs")
+            local trhs = lpp_mktmp("srhs")
+            local tr1  = lpp_mktmp("sbr1")
+            local tr2  = lpp_mktmp("sbr2")
+            lpp_lower_xpr(buf, node.lhs, tlhs)
+            lpp_lower_xpr(buf, node.rhs, trhs)
+            lpp_emit(buf, string.format("    %%%s =l call $sb_new()", tsb))
+            lpp_emit(buf, string.format("    %%%s =l call $sb_append(l %%%s, l %%%s)", tr1, tsb, tlhs))
+            lpp_emit(buf, string.format("    %%%s =l call $sb_append(l %%%s, l %%%s)", tr2, tr1, trhs))
+            lpp_emit(buf, string.format("    %%%s =l call $sb_get(l %%%s)", dest, tr2))
+            return
+        end
+
         -- pick the right opmap based on what types we're dealing with
         local isf = lpp_is_float_node(node.lhs) or lpp_is_float_node(node.rhs)
         local isl = (not isf) and (lpp_is_long_node(node.lhs) or lpp_is_long_node(node.rhs))
@@ -363,7 +387,7 @@ lpp_lower_xpr = function(buf, node, dest)
     end
 end
 
-lpp_lower_stmt = function(buf, s, lpp_brk_lbl)
+lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
     local k = s.kind
 
     if k == "decl" then
@@ -469,12 +493,37 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl)
         lpp_emit(buf, "    jmp "..lpp_brk_lbl)
         return true
 
+    elseif k == "cont" then
+        if not lpp_cont_lbl then error("lpp: continue outside a loop") end
+        lpp_emit(buf, "    jmp "..lpp_cont_lbl)
+        return true
+
     elseif k == "loop" then
         local lc = lpp_mklbl("loopcond"); local lb = lpp_mklbl("loopbody"); local le = lpp_mklbl("loopexit")
         lpp_emit(buf, "    jmp "..lc); lpp_emit(buf, lc)
         local cv = lpp_mktmp("loopcv"); lpp_lower_xpr(buf, s.cond, cv)
         lpp_emit(buf, string.format("    jnz %%%s, %s, %s", cv, lb, le))
-        lpp_emit(buf, lb); lpp_lower_block(buf, s.body, le)
+        lpp_emit(buf, lb); lpp_lower_block(buf, s.body, le, lc)
+        lpp_emit(buf, "    jmp "..lc); lpp_emit(buf, le)
+
+    elseif k == "forloop" then
+        -- for i = start, limit [, step]
+        -- emit: i_slot = start; loop { if i >= limit break; body; i += step }
+        local lc = lpp_mklbl("forcond"); local lb = lpp_mklbl("forbody"); local le = lpp_mklbl("forexit")
+        -- init
+        local tinit = lpp_mktmp("forinit")
+        lpp_lower_xpr(buf, s.start, tinit)
+        lpp_emit(buf, string.format("    storew %%%s, %%%s_slot", tinit, s.iname))
+        -- condition check
+        lpp_emit(buf, "    jmp "..lc); lpp_emit(buf, lc)
+        local tiv = lpp_mktmp("foriv"); local tlim = lpp_mktmp("forlim"); local tcmp = lpp_mktmp("forcmp")
+        lpp_emit(buf, string.format("    %%%s =w loadw %%%s_slot", tiv, s.iname))
+        lpp_lower_xpr(buf, s.limit, tlim)
+        lpp_emit(buf, string.format("    %%%s =w csltw %%%s, %%%s", tcmp, tiv, tlim))
+        lpp_emit(buf, string.format("    jnz %%%s, %s, %s", tcmp, lb, le))
+        lpp_emit(buf, lb)
+        -- body (last stmt is the step increment injected by parser)
+        lpp_lower_block(buf, s.body, le, lc)
         lpp_emit(buf, "    jmp "..lc); lpp_emit(buf, le)
 
     elseif k == "ifx" then
@@ -482,10 +531,10 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl)
         local cv = lpp_mktmp("ifcv"); lpp_lower_xpr(buf, s.cond, cv)
         lpp_emit(buf, string.format("    jnz %%%s, %s, %s", cv, ly, s.no and ln or ld))
         lpp_emit(buf, ly)
-        if not lpp_lower_block(buf, s.yes, lpp_brk_lbl) then lpp_emit(buf, "    jmp "..ld) end
+        if not lpp_lower_block(buf, s.yes, lpp_brk_lbl, lpp_cont_lbl) then lpp_emit(buf, "    jmp "..ld) end
         if s.no then
             lpp_emit(buf, ln)
-            if not lpp_lower_block(buf, s.no, lpp_brk_lbl) then lpp_emit(buf, "    jmp "..ld) end
+            if not lpp_lower_block(buf, s.no, lpp_brk_lbl, lpp_cont_lbl) then lpp_emit(buf, "    jmp "..ld) end
         end
         lpp_emit(buf, ld)
 
@@ -501,10 +550,10 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl)
             local cv = lpp_mktmp("casecmp")
             lpp_emit(buf, string.format("    %%%s =w ceqw %%%s, %%%s", cv, sv, av))
             lpp_emit(buf, string.format("    jnz %%%s, %s, %s", cv, lm, ln))
-            lpp_emit(buf, lm); lpp_lower_block(buf, arm.body, lpp_brk_lbl)
+            lpp_emit(buf, lm); lpp_lower_block(buf, arm.body, lpp_brk_lbl, lpp_cont_lbl)
             lpp_emit(buf, "    jmp "..ld); lpp_emit(buf, ln)
         end
-        if s.default then lpp_lower_block(buf, s.default, lpp_brk_lbl) end
+        if s.default then lpp_lower_block(buf, s.default, lpp_brk_lbl, lpp_cont_lbl) end
         lpp_emit(buf, "    jmp "..ld); lpp_emit(buf, ld)
 
     else
@@ -513,9 +562,9 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl)
     return false
 end
 
-lpp_lower_block = function(buf, block, lpp_brk_lbl)
+lpp_lower_block = function(buf, block, lpp_brk_lbl, lpp_cont_lbl)
     for i=1,#block.stmts do
-        if lpp_lower_stmt(buf, block.stmts[i], lpp_brk_lbl) then return true end
+        if lpp_lower_stmt(buf, block.stmts[i], lpp_brk_lbl, lpp_cont_lbl) then return true end
     end
     return false
 end
@@ -533,6 +582,9 @@ local function lpp_hoist_decls(block, lpp_seen)
             lpp_hoist_decls(s.yes, lpp_seen)
             if s.no then lpp_hoist_decls(s.no, lpp_seen) end
         elseif s.kind == "loop" then
+            lpp_hoist_decls(s.body, lpp_seen)
+        elseif s.kind == "forloop" then
+            lpp_seen[s.iname] = "int"  -- for loop variable
             lpp_hoist_decls(s.body, lpp_seen)
         elseif s.kind == "casex" then
             for j=1,#s.arms do lpp_hoist_decls(s.arms[j].body, lpp_seen) end

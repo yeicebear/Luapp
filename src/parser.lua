@@ -67,6 +67,7 @@ local function lpp_parse(lpp_toklist)
         EQ=3, NEQ=3, LT=3, GT=3, LE=3, GE=3,
         PLUS=4, MINUS=4, -- to bee or to be
         STAR=5, SLASH=5, PCENT=5, --bab (spell it out )
+        PIPE=1, CARET=1, AMP=2, SHR=3, SHL=3,  -- bitwise
     }
 
     local function lpp_parse_atom()
@@ -209,6 +210,19 @@ local function lpp_parse(lpp_toklist)
                 return {kind="assign", vname=name, rhs=lpp_climb_expr()}
             end
 
+            -- compound assignment: name += expr  etc
+            local compound_ops = {PLUSEQ="PLUS", MINUSEQ="MINUS", STAREQ="STAR", SLASHEQ="SLASH", PCENTEQ="PCENT"}
+            if next and compound_ops[next.tag] then
+                local binop = compound_ops[next.tag]
+                lpp_advance("IDENT"); lpp_advance(next.tag)
+                local rhs = lpp_climb_expr()
+                -- desugar: name op= rhs  ->  name = name op rhs
+                return {kind="assign", vname=name,
+                    rhs={kind="binop", op=binop,
+                        lhs={kind="var", vname=name},
+                        rhs=rhs}}
+            end
+
             -- array element assignment: name[idx] = expr
             if next and next.tag == "LBRACK" then
                 lpp_advance("IDENT"); lpp_advance("LBRACK")
@@ -265,6 +279,29 @@ local function lpp_parse(lpp_toklist)
             lpp_advance("WHILE")
             return {kind="loop", cond=lpp_climb_expr(), body=lpp_parse_block()}
 
+        elseif t.tag == "FOR" then
+            -- for i = start, limit [, step] { body }
+            -- desugars to: local i = start; while i < limit { body; i = i + step }
+            lpp_advance("FOR")
+            local iname = lpp_advance("IDENT").val
+            lpp_advance("ASSIGN")
+            local start_expr = lpp_climb_expr()
+            lpp_advance("COMMA")
+            local limit_expr = lpp_climb_expr()
+            local step_expr = {kind="lit_int", ival=1}
+            if lpp_curtag("COMMA") then
+                lpp_advance("COMMA")
+                step_expr = lpp_climb_expr()
+            end
+            local body = lpp_parse_block()
+            -- inject i = i + step at the end of the body (before any continue)
+            local step_stmt = {kind="assign", vname=iname,
+                rhs={kind="binop", op="PLUS",
+                    lhs={kind="var", vname=iname}, rhs=step_expr}}
+            table.insert(body.stmts, step_stmt)
+            return {kind="forloop", iname=iname, start=start_expr,
+                    limit=limit_expr, step=step_expr, body=body}
+
         elseif t.tag == "RETURN" then
             lpp_advance("RETURN")
             return {kind="ret", val=lpp_climb_expr()}
@@ -272,6 +309,10 @@ local function lpp_parse(lpp_toklist)
         elseif t.tag == "BREAK" then
             lpp_advance("BREAK")
             return {kind="brk"}
+
+        elseif t.tag == "CONTINUE" then
+            lpp_advance("CONTINUE")
+            return {kind="cont"}
 
         -- case statement: case expr { val { ... } val { ... } else { ... } }
         -- compiles down to a chain of if/else comparisons. nothing fancy.

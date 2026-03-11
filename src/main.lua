@@ -359,14 +359,18 @@ local ok, err = pcall(function()
     end
 
     if run_it_after_maybe then
-        if is_targeting_windows_now and not lpp_host_windows_check then
-            io.stderr:write("lpp: --run ignored because i can't run windows things here\n")
-        elseif lpp_host_windows_check then
-            execute_shell_command('"'..output_bin_name..'"')
-        else
-            execute_shell_command("./"..output_bin_name)
+            if is_targeting_windows_now and not lpp_host_windows_check then
+                io.stderr:write("lpp: --run ignored because i can't run windows things here\n")
+            elseif lpp_host_windows_check then
+                execute_shell_command('"'..output_bin_name..'"')
+            else
+                local cmd = output_bin_name
+                if not cmd:match("^/") then
+                    cmd = "./" .. cmd
+                end
+                execute_shell_command(cmd)
+            end
         end
-    end
 
 end)
 

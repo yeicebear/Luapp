@@ -15,6 +15,7 @@ local function lpp_tokenize(src)
         ["int"]=1,    ["bool"]=1,   ["true"]=1,   ["false"]=1,
         ["extern"]=1, ["linkto"]=1, ["float"]=1,  ["str"]=1,
         ["case"]=1,   ["struct"]=1, ["char"]=1,   ["long"]=1,
+        ["for"]=1,    ["continue"]=1,
         ["global"]=1, ["impl"]=1,
     }
 
@@ -72,8 +73,17 @@ local function lpp_tokenize(src)
             lpp_pushtok("CHAR", ch)
 
         -- number could be int or float we check for dot
+        -- also handle hex literals 0x...
         elseif c:match("%d") then
             local s = lpp_pos
+            -- check for hex: 0x or 0X
+            if src:sub(lpp_pos,lpp_pos+1):match("0[xX]") then
+                lpp_pos = lpp_pos+2
+                while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos):match("[%x]") do
+                    lpp_pos = lpp_pos+1
+                end
+                lpp_pushtok("NUMBER", tonumber(src:sub(s, lpp_pos-1)))
+            else
             while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos):match("%d") do
                 lpp_pos = lpp_pos+1
             end
@@ -87,6 +97,7 @@ local function lpp_tokenize(src)
             else
                 lpp_pushtok("NUMBER", tonumber(src:sub(s, lpp_pos-1)))
             end
+            end  -- end hex else
 
         -- identifier or keyword eat letters numbers underscores
         -- then check keyword table
@@ -116,14 +127,27 @@ local function lpp_tokenize(src)
         elseif c == "]" then lpp_pushtok("RBRACK"); lpp_pos=lpp_pos+1
         elseif c == "." then lpp_pushtok("DOT");    lpp_pos=lpp_pos+1
         elseif c == "," then lpp_pushtok("COMMA");  lpp_pos=lpp_pos+1
+        elseif src:sub(lpp_pos,lpp_pos+1) == "+=" then lpp_pushtok("PLUSEQ");  lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "-=" then lpp_pushtok("MINUSEQ"); lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "*=" then lpp_pushtok("STAREQ");  lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "/=" then lpp_pushtok("SLASHEQ"); lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "%=" then lpp_pushtok("PCENTEQ"); lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == ">>" then lpp_pushtok("SHR");     lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "<<" then lpp_pushtok("SHL");     lpp_pos=lpp_pos+2
         elseif c == "+" then lpp_pushtok("PLUS");   lpp_pos=lpp_pos+1
         elseif c == "-" then lpp_pushtok("MINUS");  lpp_pos=lpp_pos+1
         elseif c == "*" then lpp_pushtok("STAR");   lpp_pos=lpp_pos+1
         elseif c == "/" then lpp_pushtok("SLASH");  lpp_pos=lpp_pos+1
         elseif c == "%" then lpp_pushtok("PCENT");  lpp_pos=lpp_pos+1
+        elseif src:sub(lpp_pos,lpp_pos+1) == "||" then lpp_pushtok("OR");   lpp_pos=lpp_pos+2
+        elseif c == "|" then lpp_pushtok("PIPE");   lpp_pos=lpp_pos+1
+        elseif c == "^" then lpp_pushtok("CARET");  lpp_pos=lpp_pos+1
+        elseif c == "~" then lpp_pushtok("TILDE");  lpp_pos=lpp_pos+1
         elseif c == ">" then lpp_pushtok("GT");     lpp_pos=lpp_pos+1
         elseif c == "<" then lpp_pushtok("LT");     lpp_pos=lpp_pos+1
         elseif c == "!" then lpp_pushtok("BANG");   lpp_pos=lpp_pos+1
+        elseif src:sub(lpp_pos,lpp_pos+1) == "&&" then lpp_pushtok("AND");  lpp_pos=lpp_pos+2
+        elseif src:sub(lpp_pos,lpp_pos+1) == "||" then lpp_pushtok("OR");   lpp_pos=lpp_pos+2
         elseif c == "&" then lpp_pushtok("AMP");    lpp_pos=lpp_pos+1
         else lpp_pos=lpp_pos+1
         end

@@ -6,6 +6,7 @@
 local lpp_valid_ops = {
     PLUS=1, MINUS=1, STAR=1, SLASH=1, PCENT=1,
     EQ=1, NEQ=1, GT=1, LT=1, GE=1, LE=1, AND=1, OR=1,
+    AMP=1, PIPE=1, CARET=1, SHL=1, SHR=1,
 }
 
 local lpp_scopestack  = {}
@@ -103,6 +104,7 @@ local function lpp_scope_walk(bl)
 
         elseif k == "ret"   then lpp_chk_xpr(s.val)
         elseif k == "brk"   then  -- nothing to check, break is always valid if codegen catches misuse
+        elseif k == "cont"  then  -- same for continue
         elseif k == "xstmt" then lpp_chk_xpr(s.expr)
 
         elseif k == "ifx" then
@@ -113,6 +115,16 @@ local function lpp_scope_walk(bl)
         elseif k == "loop" then
             lpp_chk_xpr(s.cond)
             lpp_scope_walk(s.body)
+
+        elseif k == "forloop" then
+            lpp_chk_xpr(s.start)
+            lpp_chk_xpr(s.limit)
+            lpp_chk_xpr(s.step)
+            -- bind the loop variable before walking body
+            lpp_scope_enter()
+            lpp_scope_bind(s.iname, "int")
+            lpp_scope_walk(s.body)
+            lpp_scope_leave()
 
         elseif k == "casex" then
             lpp_chk_xpr(s.subject)
