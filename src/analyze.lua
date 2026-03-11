@@ -11,6 +11,7 @@ local lpp_valid_ops = {
 local lpp_scopestack  = {}
 local lpp_known_fns
 local lpp_known_structs
+local lpp_known_globals = {}  -- global varname -> type, checked by scope_lookup
 
 -- these functions are always available even without a linkto.
 -- print is an alias for print_int so it goes here too.
@@ -20,6 +21,7 @@ local lpp_builtins = {
 
 -- scope is a stack of tables. push on enter, pop on leave.
 -- lookup walks the stack from top to bottom so inner scopes shadow outer ones.
+-- if nothing found in any scope, fall back to globals table.
 local function lpp_scope_enter()  lpp_scopestack[#lpp_scopestack+1] = {} end
 local function lpp_scope_leave()  lpp_scopestack[#lpp_scopestack] = nil  end
 local function lpp_scope_bind(nm, vtype)
@@ -29,6 +31,7 @@ local function lpp_scope_lookup(nm)
     for i = #lpp_scopestack, 1, -1 do
         if lpp_scopestack[i][nm] then return lpp_scopestack[i][nm] end
     end
+    return lpp_known_globals[nm]  -- fall back to globals
 end
 
 local function lpp_err(msg) error("lpp: "..msg) end
@@ -130,6 +133,13 @@ local function lpp_analyze(prog)
     lpp_scopestack    = {}
     lpp_known_fns     = {}
     lpp_known_structs = prog.structs or {}
+    lpp_known_globals = {}
+
+    -- register all globals so functions can see them
+    for i=1,#(prog.globals or {}) do
+        local g = prog.globals[i]
+        lpp_known_globals[g.gname] = g.gtype
+    end
 
     -- register all extern and func names so forward calls work
     for i=1,#prog.externs do lpp_known_fns[prog.externs[i].fname] = true end
