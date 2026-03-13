@@ -196,6 +196,7 @@ if not input_file_to_process then
 end
 
 if target_platform == nil then
+    -- mac and linux both use native cc and produce runnable binaries the same way
     target_platform = lpp_host_windows_check and "windows" or "linux"
 elseif target_platform ~= "linux" and target_platform ~= "windows" then
     io.stderr:write("lpp: i don't know what '"..target_platform.."' is.\n")
@@ -251,6 +252,23 @@ local ok, err = pcall(function()
     end
 
     lpp_analyzer_doer(ast_blob)
+
+    -- check for main() before codegen so the error is human-readable
+    local has_main = false
+    for i=1,#ast_blob.funcs do
+        if ast_blob.funcs[i].fname == "main" then has_main = true; break end
+    end
+    if not has_main and not (ast_blob.toplevel_stmts and #ast_blob.toplevel_stmts > 0) then
+        error(
+            "lpp: no main() function found in '"..input_file_to_process.."'\n\n" ..
+            "every lpp program needs an entry point. define it like this:\n\n" ..
+            "    func main(): int {\n" ..
+            "        // your code here\n" ..
+            "        return 0\n" ..
+            "    }\n"
+        )
+    end
+
     lpp_log("running codegen")
     local ssa_output = lpp_codegen_doer(ast_blob)
 
@@ -359,22 +377,26 @@ local ok, err = pcall(function()
     end
 
     if run_it_after_maybe then
-            if is_targeting_windows_now and not lpp_host_windows_check then
-                io.stderr:write("lpp: --run ignored because i can't run windows things here\n")
-            elseif lpp_host_windows_check then
-                execute_shell_command('"'..output_bin_name..'"')
-            else
-                local cmd = output_bin_name
-                if not cmd:match("^/") then
-                    cmd = "./" .. cmd
-                end
-                execute_shell_command(cmd)
-            end
+        if is_targeting_windows_now and not lpp_host_windows_check then
+            -- can't run a windows .exe on linux or mac without wine
+            io.stderr:write("lpp: --run skipped (can't execute a Windows .exe on this host)\n")
+        elseif lpp_host_windows_check then
+            execute_shell_command('"'..output_bin_name..'"')
+        else
+            -- linux and macOS: just prepend ./ if it's not an absolute path
+            local cmd = output_bin_name
+            if not cmd:match("^/") then cmd = "./" .. cmd end
+            execute_shell_command(cmd)
         end
+    end
 
 end)
 
 if not ok then
-    io.stderr:write("lpp: "..tostring(err).."\n")
+    -- Lua prepends something like "input:47: " to errors thrown with error().
+    -- Strip just that prefix so the user sees the clean lpp message.
+    -- Use a non-greedy match anchored to the start, stopping at the first ": "
+    local msg = tostring(err):gsub("^[^:\n]+:%d+: ", "")
+    io.stderr:write(msg.."\n")
     os.exit(1)
 end

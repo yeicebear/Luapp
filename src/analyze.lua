@@ -35,33 +35,41 @@ local function lpp_scope_lookup(nm)
     return lpp_known_globals[nm]  -- fall back to globals
 end
 
-local function lpp_err(msg) error("lpp: "..msg) end
+-- lpp_err: always include a source line if we have one.
+-- node.line is stamped on every AST node by the parser.
+local function lpp_err(msg, line)
+    if line then
+        error("lpp: line "..line..": "..msg)
+    else
+        error("lpp: "..msg)
+    end
+end
 
 -- check an expression node for undefined names
 local function lpp_chk_xpr(nd)
     if not nd then return end
     local k = nd.kind
+    local ln = nd.line  -- may be nil for synthetic nodes; that's fine
     if k == "lit_int" or k == "lit_float" or k == "lit_str" then return
 
     elseif k == "var" then
         if not lpp_scope_lookup(nd.vname) then
-            lpp_err("'"..nd.vname.."' used before it was declared")
+            lpp_err("'"..nd.vname.."' used before it was declared", ln)
         end
 
     elseif k == "arr_get" then
-        -- we can't check bounds here since they might not be known — that's a you problem at runtime
         if not lpp_scope_lookup(nd.vname) then
-            lpp_err("array '"..nd.vname.."' used before declared")
+            lpp_err("array '"..nd.vname.."' used before declared", ln)
         end
         lpp_chk_xpr(nd.idx)
 
     elseif k == "field_get" then
         if not lpp_scope_lookup(nd.vname) then
-            lpp_err("'"..nd.vname.."' used before declared")
+            lpp_err("'"..nd.vname.."' used before declared", ln)
         end
 
     elseif k == "binop" then
-        if not lpp_valid_ops[nd.op] then lpp_err("unknown operator '"..nd.op.."'") end
+        if not lpp_valid_ops[nd.op] then lpp_err("unknown operator '"..nd.op.."'", ln) end
         lpp_chk_xpr(nd.lhs); lpp_chk_xpr(nd.rhs)
 
     elseif k == "uneg" or k == "unot" then
@@ -69,11 +77,15 @@ local function lpp_chk_xpr(nd)
 
     elseif k == "call" then
         if not lpp_known_fns[nd.fname] and not lpp_builtins[nd.fname] then
-            lpp_err("'"..nd.fname.."' — no such function (did you forget an extern or linkto?)")
+            lpp_err("'"..nd.fname.."' — no such function (did you forget an extern or linkto?)", ln)
         end
         for i=1,#nd.args do lpp_chk_xpr(nd.args[i]) end
 
-    else lpp_err("lpp_chk_xpr: unhandled node kind '"..tostring(k).."' — this is a compiler bug, sorry")
+    elseif k == "method_call" then
+        -- method calls are resolved at codegen; just check the args here
+        for i=1,#nd.args do lpp_chk_xpr(nd.args[i]) end
+
+    else lpp_err("lpp_chk_xpr: unhandled node kind '"..tostring(k).."' — this is a compiler bug, sorry", ln)
     end
 end
 
@@ -83,23 +95,28 @@ local function lpp_scope_walk(bl)
     for i=1,#bl.stmts do
         local s = bl.stmts[i]
         local k = s.kind
+        local ln = s.line  -- present on decl/assign/arr_set nodes; nil on others
 
         if k == "decl" then
             if s.rhs then lpp_chk_xpr(s.rhs) end
-            lpp_scope_bind(s.vname, s.vtype)  -- bind AFTER checking rhs so you can't use a var in its own initializer
+            lpp_scope_bind(s.vname, s.vtype)  -- bind AFTER rhs so you can't use the var in its own init
 
         elseif k == "assign" then
             if not lpp_scope_lookup(s.vname) then
-                lpp_err("can't assign to '"..s.vname.."' — declare it first with local")
+                lpp_err("'"..s.vname.."' assigned before declaration — use 'local' first", ln)
             end
             lpp_chk_xpr(s.rhs)
 
         elseif k == "arr_set" then
-            if not lpp_scope_lookup(s.vname) then lpp_err("array '"..s.vname.."' not declared") end
+            if not lpp_scope_lookup(s.vname) then
+                lpp_err("array '"..s.vname.."' not declared", ln)
+            end
             lpp_chk_xpr(s.idx); lpp_chk_xpr(s.rhs)
 
         elseif k == "field_set" then
-            if not lpp_scope_lookup(s.vname) then lpp_err("'"..s.vname.."' not declared") end
+            if not lpp_scope_lookup(s.vname) then
+                lpp_err("'"..s.vname.."' not declared", ln)
+            end
             lpp_chk_xpr(s.rhs)
 
         elseif k == "ret"   then lpp_chk_xpr(s.val)
@@ -120,7 +137,6 @@ local function lpp_scope_walk(bl)
             lpp_chk_xpr(s.start)
             lpp_chk_xpr(s.limit)
             lpp_chk_xpr(s.step)
-            -- bind the loop variable before walking body
             lpp_scope_enter()
             lpp_scope_bind(s.iname, "int")
             lpp_scope_walk(s.body)

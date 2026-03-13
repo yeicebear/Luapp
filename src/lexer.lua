@@ -6,6 +6,7 @@
 local function lpp_tokenize(src)
     local lpp_tokbuf = {}
     local lpp_pos = 1
+    local lpp_line = 1  -- current source line, 1-based
 
     -- every keyword that gets its own token type instead of being IDENT
     -- print is NOT here on purpose it parses like normal function call
@@ -20,21 +21,23 @@ local function lpp_tokenize(src)
     }
 
     local function lpp_pushtok(tag, v)
-        lpp_tokbuf[#lpp_tokbuf+1] = v ~= nil and {tag=tag, val=v} or {tag=tag}
+        lpp_tokbuf[#lpp_tokbuf+1] = v ~= nil and {tag=tag, val=v, line=lpp_line} or {tag=tag, line=lpp_line}
     end
 
     while lpp_pos <= #src do
         local c = src:sub(lpp_pos, lpp_pos)
 
-        -- skip whitespace we dont care about indentation or newlines
+        -- skip whitespace; count newlines so we know what line we're on
         if c:match("%s") then
+            if c == "\n" then lpp_line = lpp_line+1 end
             lpp_pos = lpp_pos+1
 
-        -- single line comments skip until end of line
+        -- single line comments skip until end of line, then count the newline
         elseif src:sub(lpp_pos, lpp_pos+1) == "//" then
             while lpp_pos <= #src and src:sub(lpp_pos,lpp_pos) ~= "\n" do
                 lpp_pos = lpp_pos+1
             end
+            -- the \n itself will be consumed on next iteration and counted there
 
         -- string literal grab everything inside quotes
         -- handles backslash escapes so we dont eat closing quote
@@ -139,16 +142,17 @@ local function lpp_tokenize(src)
         elseif c == "*" then lpp_pushtok("STAR");   lpp_pos=lpp_pos+1
         elseif c == "/" then lpp_pushtok("SLASH");  lpp_pos=lpp_pos+1
         elseif c == "%" then lpp_pushtok("PCENT");  lpp_pos=lpp_pos+1
+        -- IMPORTANT: && and || must be checked before & and | (single-char),
+        -- otherwise "&&" gets consumed as two separate "&" tokens and AND never fires.
+        elseif src:sub(lpp_pos,lpp_pos+1) == "&&" then lpp_pushtok("AND");  lpp_pos=lpp_pos+2
         elseif src:sub(lpp_pos,lpp_pos+1) == "||" then lpp_pushtok("OR");   lpp_pos=lpp_pos+2
+        elseif c == "&" then lpp_pushtok("AMP");    lpp_pos=lpp_pos+1
         elseif c == "|" then lpp_pushtok("PIPE");   lpp_pos=lpp_pos+1
         elseif c == "^" then lpp_pushtok("CARET");  lpp_pos=lpp_pos+1
         elseif c == "~" then lpp_pushtok("TILDE");  lpp_pos=lpp_pos+1
         elseif c == ">" then lpp_pushtok("GT");     lpp_pos=lpp_pos+1
         elseif c == "<" then lpp_pushtok("LT");     lpp_pos=lpp_pos+1
         elseif c == "!" then lpp_pushtok("BANG");   lpp_pos=lpp_pos+1
-        elseif src:sub(lpp_pos,lpp_pos+1) == "&&" then lpp_pushtok("AND");  lpp_pos=lpp_pos+2
-        elseif src:sub(lpp_pos,lpp_pos+1) == "||" then lpp_pushtok("OR");   lpp_pos=lpp_pos+2
-        elseif c == "&" then lpp_pushtok("AMP");    lpp_pos=lpp_pos+1
         else lpp_pos=lpp_pos+1
         end
     end

@@ -37,6 +37,16 @@ end
 
 local function lpp_emit(buf, line) buf[#buf+1] = line end
 
+-- codegen error: include source line when the node has one
+local function lpp_cgerr(msg, node)
+    local ln = node and node.line
+    if ln then
+        error("lpp: line "..ln..": "..msg)
+    else
+        error("lpp: "..msg)
+    end
+end
+
 -- intern a string literal into the data section and return its label.
 -- same string appearing twice will get two separate labels. that's fine, strings are immutable.
 local function lpp_intern_str(s)
@@ -215,12 +225,17 @@ lpp_lower_xpr = function(buf, node, dest)
         local is_ptr_access = (lpp_cur_vartypes[node.vname] == "long" and lpp_cur_self_struct)
         if is_ptr_access then sname = lpp_cur_self_struct end
         local sdef  = lpp_cur_structs[sname]
-        if not sdef then error("lpp codegen: unknown struct '"..tostring(sname).."' for '"..node.vname.."'") end
+        if not sdef then lpp_cgerr("'"..node.vname.."' has type '"..tostring(sname).."' which is not a known struct", node) end
         local fdef
         for i=1,#sdef.fields do
             if sdef.fields[i].name == node.field then fdef = sdef.fields[i]; break end
         end
-        if not fdef then error("lpp codegen: no field '"..node.field.."' — did you spell it right?") end
+        if not fdef then
+            lpp_cgerr("'"..node.field.."' is not a field of struct '"..sname.."'\n"..
+                "    fields are: "..
+                (function() local fs={} for _,f in ipairs(sdef.fields) do fs[#fs+1]=f.name end return table.concat(fs,", ") end)(),
+                node)
+        end
         local tptr = lpp_mktmp("fldptr")
         local fqt  = lpp_basetype_qt(fdef.ftype)
         if is_ptr_access then
@@ -322,7 +337,7 @@ lpp_lower_xpr = function(buf, node, dest)
         local isl = (not isf) and (lpp_is_long_node(node.lhs) or lpp_is_long_node(node.rhs))
         local opmap = isf and lpp_flt_opmap or (isl and lpp_long_opmap or lpp_int_opmap)
         local qi = opmap[op]
-        if not qi then error("lpp codegen: no QBE op for '"..op.."' — this shouldn't happen") end
+        if not qi then lpp_cgerr("operator '"..op.."' is not supported for this type combination", node) end
 
         local lv = lpp_mktmp("boplhs"); local rv = lpp_mktmp("boprhs")
         lpp_lower_xpr(buf, node.lhs, lv)
@@ -383,7 +398,7 @@ lpp_lower_xpr = function(buf, node, dest)
             dest, lpp_call_rqt, callee, table.concat(lpp_callargs, ", ")))
 
     else
-        error("lpp codegen: unhandled expression kind '"..tostring(k).."' — compiler bug")
+        lpp_cgerr("unhandled expression kind '"..tostring(k).."' — this is a compiler bug, please report it", node)
     end
 end
 
@@ -458,12 +473,17 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
         local is_ptr_access = (lpp_cur_vartypes[s.vname] == "long" and lpp_cur_self_struct)
         if is_ptr_access then sname = lpp_cur_self_struct end
         local sdef  = lpp_cur_structs[sname]
-        if not sdef then error("lpp codegen: unknown struct for '"..s.vname.."'") end
+        if not sdef then lpp_cgerr("'"..s.vname.."' has type '"..tostring(sname).."' which is not a known struct", s) end
         local fdef
         for i=1,#sdef.fields do
             if sdef.fields[i].name == s.field then fdef = sdef.fields[i]; break end
         end
-        if not fdef then error("lpp codegen: no field '"..s.field.."'") end
+        if not fdef then
+            lpp_cgerr("'"..s.field.."' is not a field of struct '"..sname.."'\n"..
+                "    fields are: "..
+                (function() local fs={} for _,f in ipairs(sdef.fields) do fs[#fs+1]=f.name end return table.concat(fs,", ") end)(),
+                s)
+        end
         local tptr = lpp_mktmp("fldptr"); local tval = lpp_mktmp("fldval")
         local fqt  = lpp_basetype_qt(fdef.ftype)
         if is_ptr_access then
@@ -489,12 +509,12 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
         return true  -- signal to stop emitting the block
 
     elseif k == "brk" then
-        if not lpp_brk_lbl then error("lpp: break outside a loop") end
+        if not lpp_brk_lbl then lpp_cgerr("'break' used outside of a loop", s) end
         lpp_emit(buf, "    jmp "..lpp_brk_lbl)
         return true
 
     elseif k == "cont" then
-        if not lpp_cont_lbl then error("lpp: continue outside a loop") end
+        if not lpp_cont_lbl then lpp_cgerr("'continue' used outside of a loop", s) end
         lpp_emit(buf, "    jmp "..lpp_cont_lbl)
         return true
 
@@ -557,7 +577,7 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
         lpp_emit(buf, "    jmp "..ld); lpp_emit(buf, ld)
 
     else
-        error("lpp codegen: unhandled statement '"..tostring(k).."' — this is a bug, not your fault")
+        lpp_cgerr("unhandled statement '"..tostring(k).."' — this is a compiler bug, please report it", s)
     end
     return false
 end

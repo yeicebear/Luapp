@@ -11,17 +11,48 @@ local function lpp_parse(lpp_toklist)
     local function lpp_curtok()   return lpp_toklist[lpp_cur] end
     local function lpp_peektok(n) return lpp_toklist[lpp_cur + (n or 1)] end
     local function lpp_curtag(tag) return lpp_curtok() and lpp_curtok().tag == tag end
+    -- return the source line of the current token (falls back to "?" if missing)
+    local function lpp_curline()
+        local t = lpp_toklist[lpp_cur] or lpp_toklist[lpp_cur-1]
+        return t and t.line or "?"
+    end
+
+    -- translate internal token tag names into readable symbols for error messages
+    local lpp_tok_name = {
+        LBRACE="'{'", RBRACE="'}'", LPAREN="'('", RPAREN="')'",
+        LBRACK="'['", RBRACK="']'", COLON="':'", COMMA="','",
+        ASSIGN="'='", DOT="'.'", PLUS="'+'", MINUS="'-'",
+        STAR="'*'", SLASH="'/'", PCENT="'%'",
+        EQ="'=='", NEQ="'!='", LT="'<'", GT="'>'", LE="'<='", GE="'>='",
+        AND="'&&'", OR="'||'", AMP="'&'", PIPE="'|'", CARET="'^'",
+        BANG="'!'", TILDE="'~'", SHL="'<<'", SHR="'>>'",
+        PLUSEQ="'+='", MINUSEQ="'-='", STAREQ="'*='", SLASHEQ="'/='", PCENTEQ="'%='",
+        FUNC="'func'", LOCAL="'local'", IF="'if'", ELSE="'else'",
+        WHILE="'while'", FOR="'for'", RETURN="'return'", BREAK="'break'", CONTINUE="'continue'",
+        STRUCT="'struct'", IMPL="'impl'", EXTERN="'extern'", LINKTO="'linkto'",
+        GLOBAL="'global'", CASE="'case'",
+        INT="'int'", FLOAT="'float'", STR="'str'", BOOL="'bool'",
+        CHAR="'char'", LONG="'long'", TRUE="'true'", FALSE="'false'",
+        IDENT="a name", NUMBER="a number", STRING="a string", EOF="end of file",
+    }
+    local function lpp_tokstr(t)
+        if not t then return "end of file" end
+        local n = lpp_tok_name[t.tag]
+        if n then return n end
+        if t.val then return "'"..tostring(t.val).."'" end
+        return t.tag
+    end
 
     local function lpp_advance(expected)
         local t = lpp_curtok()
         if not t then
-            error("lpp: unexpected end of file"..(expected and (", wanted "..expected) or ""))
+            local ln = (lpp_toklist[#lpp_toklist] and lpp_toklist[#lpp_toklist].line) or "?"
+            local want = expected and (", expected "..( lpp_tok_name[expected] or expected)) or ""
+            error("lpp: line "..ln..": unexpected end of file"..want)
         end
         if expected and t.tag ~= expected then
-            -- this error message has saved me from losing my mind many times
-            error("lpp: syntax error at token "..lpp_cur..
-                  " — got "..t.tag..(t.val and ("("..tostring(t.val)..")") or "")..
-                  ", expected "..expected)
+            error("lpp: line "..t.line..": expected "  ..(lpp_tok_name[expected] or expected)..
+                  ", got "..lpp_tokstr(t))
         end
         lpp_cur = lpp_cur+1
         return t
@@ -38,7 +69,7 @@ local function lpp_parse(lpp_toklist)
             lpp_cur = lpp_cur+1
             base = t.val or t.tag:lower()
         else
-            error("lpp: expected type at token "..lpp_cur.." got "..(t and t.tag or "nil"))
+            error("lpp: line "..(t and t.line or "?")..": expected a type name, got "..lpp_tokstr(t))
         end
         -- check for array suffix
         if lpp_curtag("LBRACK") then
@@ -115,17 +146,16 @@ local function lpp_parse(lpp_toklist)
                     end
                 end
                 lpp_advance("RPAREN")
-                return {kind="call", fname=t.val, args=lpp_arglist}
+                return {kind="call", fname=t.val, args=lpp_arglist, line=t.line}
             end
 
-            local node = {kind="var", vname=t.val}
--- hi!
+            local node = {kind="var", vname=t.val, line=t.line}
             -- array index: name[expr]
             if lpp_curtag("LBRACK") then
                 lpp_advance("LBRACK")
                 local idx = lpp_climb_expr()
                 lpp_advance("RBRACK")
-                node = {kind="arr_get", vname=t.val, idx=idx}
+                node = {kind="arr_get", vname=t.val, idx=idx, line=t.line}
             -- dot: either field access name.field or method call name.method(args)
             elseif lpp_curtag("DOT") then
                 lpp_advance("DOT")
@@ -144,16 +174,16 @@ local function lpp_parse(lpp_toklist)
                     end
                     lpp_advance("RPAREN")
                     -- receiver stored as a special first arg that codegen turns into &obj
-                    node = {kind="method_call", receiver=t.val, method=field, args=args}
+                    node = {kind="method_call", receiver=t.val, method=field, args=args, line=t.line}
                 else
-                    node = {kind="field_get", vname=t.val, field=field}
+                    node = {kind="field_get", vname=t.val, field=field, line=t.line}
                 end
             end
 
             return node
         end
 
-        error("lpp: unexpected "..t.tag.." at token "..(lpp_cur-1))
+        error("lpp: line "..t.line..": unexpected "..lpp_tokstr(t))
     end
 
     -- pratt expression climbing.
@@ -189,6 +219,7 @@ local function lpp_parse(lpp_toklist)
         -- variable declaration: local name: Type [= expr]
         -- the initializer is optional for arrays and structs
         if t.tag == "LOCAL" then
+            local ln = t.line
             lpp_advance("LOCAL")
             local lpp_varname = lpp_advance("IDENT").val
             lpp_advance("COLON")
@@ -198,16 +229,17 @@ local function lpp_parse(lpp_toklist)
                 lpp_advance("ASSIGN")
                 lpp_rhs = lpp_climb_expr()
             end
-            return {kind="decl", vname=lpp_varname, vtype=lpp_vartype, rhs=lpp_rhs}
+            return {kind="decl", vname=lpp_varname, vtype=lpp_vartype, rhs=lpp_rhs, line=ln}
 
         elseif t.tag == "IDENT" then
             local name = t.val
+            local ln   = t.line
             local next = lpp_peektok()
 
             -- plain assignment: name = expr
             if next and next.tag == "ASSIGN" then
                 lpp_advance("IDENT"); lpp_advance("ASSIGN")
-                return {kind="assign", vname=name, rhs=lpp_climb_expr()}
+                return {kind="assign", vname=name, rhs=lpp_climb_expr(), line=ln}
             end
 
             -- compound assignment: name += expr  etc
@@ -217,7 +249,7 @@ local function lpp_parse(lpp_toklist)
                 lpp_advance("IDENT"); lpp_advance(next.tag)
                 local rhs = lpp_climb_expr()
                 -- desugar: name op= rhs  ->  name = name op rhs
-                return {kind="assign", vname=name,
+                return {kind="assign", vname=name, line=ln,
                     rhs={kind="binop", op=binop,
                         lhs={kind="var", vname=name},
                         rhs=rhs}}
@@ -228,7 +260,7 @@ local function lpp_parse(lpp_toklist)
                 lpp_advance("IDENT"); lpp_advance("LBRACK")
                 local idx = lpp_climb_expr()
                 lpp_advance("RBRACK"); lpp_advance("ASSIGN")
-                return {kind="arr_set", vname=name, idx=idx, rhs=lpp_climb_expr()}
+                return {kind="arr_set", vname=name, idx=idx, rhs=lpp_climb_expr(), line=ln}
             end
 
             -- struct field assignment: name.field = expr
