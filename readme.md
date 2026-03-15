@@ -21,5 +21,9 @@ curl -fsSL https://raw.githubusercontent.com/yeicebear/Luapp/main/install.sh
 <img width="922" height="696" alt="image" src="https://github.com/user-attachments/assets/81f377e6-581f-4c69-b077-ccfcbb52f480" />
 **This command shows you the contents of the file, so you dont end up running a malicious script. It's good practice. to run this command before piping it to sh.**
 
+
+# Join our Discord!
+https://discord.gg/Ksn3N9vaAE
+
 # TODO:
-- Add support for windows (through parser technique)
+- Nothing rn

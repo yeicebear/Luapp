@@ -150,11 +150,84 @@ local function lpp_is_long_node(n)
     return false
 end
 
+-- infer the QBE type that an expression node will produce at runtime.
+-- used to annotate call arguments correctly so QBE sees matching types.
+-- this must stay in sync with lpp_lower_xpr's emit logic.
+local function lpp_node_qt(n)
+    if not n then return "w" end
+    local k = n.kind
+    if k == "lit_float"  then return "d" end
+    if k == "lit_str"    then return "l" end
+    if k == "lit_int" then
+        if n.ival > 2147483647 or n.ival < -2147483648 then return "l" end
+        return "w"
+    end
+    if k == "var" then
+        local qt = lpp_qt_for_var(n.vname)
+        return (qt == "arr") and "l" or qt
+    end
+    if k == "arr_get" then
+        local vt = lpp_cur_vartypes[n.vname] or "int[1]"
+        local base = vt:match("^(.+)%[%d+%]$") or vt:match("^(.+)%[%]$") or "int"
+        return lpp_basetype_qt(base)
+    end
+    if k == "field_get" then
+        local qt = lpp_cur_vartypes[n.vname] or ""
+        local sname = qt:match("^struct:(.+)$") or qt
+        if lpp_cur_self_struct and lpp_cur_vartypes[n.vname] == "long" then
+            sname = lpp_cur_self_struct
+        end
+        local sdef = lpp_cur_structs[sname]
+        if sdef then
+            for i=1,#sdef.fields do
+                if sdef.fields[i].name == n.field then
+                    return lpp_basetype_qt(sdef.fields[i].ftype)
+                end
+            end
+        end
+        return "w"
+    end
+    if k == "call" then
+        local fname = n.fname
+        if fname == "print" then fname = "print_int" end
+        return lpp_fn_rtypes[fname] or "w"
+    end
+    if k == "method_call" then
+        local receiver_type = lpp_cur_vartypes[n.receiver] or lpp_globals[n.receiver] or ""
+        local sname = receiver_type:match("^struct:(.+)$") or receiver_type
+        return lpp_fn_rtypes[sname.."_"..n.method] or "w"
+    end
+    if k == "binop" then
+        local op = n.op
+        local is_cmp = op=="EQ" or op=="NEQ" or op=="GT" or op=="LT" or op=="GE" or op=="LE"
+        if is_cmp then return "w" end
+        -- str + str concat goes through sb_get which returns a pointer (l)
+        local function is_str_node(x)
+            if not x then return false end
+            if x.kind == "lit_str" then return true end
+            if x.kind == "var" then return (lpp_cur_vartypes[x.vname] or lpp_globals[x.vname]) == "str" end
+            return false
+        end
+        if op == "PLUS" and (is_str_node(n.lhs) or is_str_node(n.rhs)) then return "l" end
+        if lpp_is_float_node(n.lhs) or lpp_is_float_node(n.rhs) then return "d" end
+        if lpp_is_long_node(n.lhs) or lpp_is_long_node(n.rhs) then return "l" end
+        return "w"
+    end
+    if k == "uneg" then return lpp_node_qt(n.x) end
+    if k == "unot" then return "w" end
+    return "w"
+end
+
 lpp_lower_xpr = function(buf, node, dest)
     local k = node.kind
 
     if k == "lit_int" then
-        lpp_emit(buf, string.format("    %%%s =w copy %d", dest, node.ival))
+        -- values outside int32 range must be emitted as l — w can't hold them
+        if node.ival > 2147483647 or node.ival < -2147483648 then
+            lpp_emit(buf, string.format("    %%%s =l copy %d", dest, node.ival))
+        else
+            lpp_emit(buf, string.format("    %%%s =w copy %d", dest, node.ival))
+        end
 
     elseif k == "lit_float" then
         -- QBE double literals use the d_ prefix
@@ -343,6 +416,21 @@ lpp_lower_xpr = function(buf, node, dest)
         lpp_lower_xpr(buf, node.lhs, lv)
         lpp_lower_xpr(buf, node.rhs, rv)
 
+        -- when one side is long and the other produced a w (plain int literal or int var),
+        -- sign-extend it to l so QBE sees matching types on both sides of the instruction.
+        if isl then
+            if not lpp_is_long_node(node.lhs) then
+                local ext = lpp_mktmp("lext")
+                lpp_emit(buf, string.format("    %%%s =l extsw %%%s", ext, lv))
+                lv = ext
+            end
+            if not lpp_is_long_node(node.rhs) then
+                local ext = lpp_mktmp("lext")
+                lpp_emit(buf, string.format("    %%%s =l extsw %%%s", ext, rv))
+                rv = ext
+            end
+        end
+
         -- comparison ops always produce a w (0 or 1) even when comparing floats or longs
         local is_cmp = op=="EQ" or op=="NEQ" or op=="GT" or op=="LT" or op=="GE" or op=="LE"
         local rtype = is_cmp and "w" or (isf and "d" or (isl and "l" or "w"))
@@ -352,15 +440,26 @@ lpp_lower_xpr = function(buf, node, dest)
         local lpp_callargs = {}
         for i=1,#node.args do
             local arg = node.args[i]
-            local t = lpp_mktmp("callarg")
-            lpp_lower_xpr(buf, arg, t)
-            -- figure out the QBE type for each argument
-            local aqt = "w"
-            if arg.kind == "lit_str"   then aqt = "l"
-            elseif arg.kind == "lit_float" then aqt = "d"
-            elseif arg.kind == "var"   then aqt = lpp_qt_for_var(arg.vname) end
-            if aqt == "arr" then aqt = "l" end  -- arrays pass as pointers
-            lpp_callargs[#lpp_callargs+1] = aqt.." %"..t
+            -- struct args pass as pointer to the slot — don't load, just take the address
+            if arg.kind == "var" then
+                local vt = lpp_cur_vartypes[arg.vname] or lpp_globals[arg.vname] or ""
+                if lpp_cur_structs[vt] then
+                    if lpp_globals[arg.vname] then
+                        lpp_callargs[#lpp_callargs+1] = "l $"..arg.vname
+                    else
+                        lpp_callargs[#lpp_callargs+1] = "l %"..arg.vname.."_slot"
+                    end
+                    goto continue_callargs
+                end
+            end
+            do
+                local t = lpp_mktmp("callarg")
+                lpp_lower_xpr(buf, arg, t)
+                local aqt = lpp_node_qt(arg)
+                if aqt == "arr" then aqt = "l" end
+                lpp_callargs[#lpp_callargs+1] = aqt.." %"..t
+            end
+            ::continue_callargs::
         end
         local lpp_callee = node.fname
         if lpp_callee == "print" then lpp_callee = "print_int" end  -- print is an alias
@@ -386,10 +485,7 @@ lpp_lower_xpr = function(buf, node, dest)
             local arg = node.args[i]
             local t = lpp_mktmp("marg")
             lpp_lower_xpr(buf, arg, t)
-            local aqt = "w"
-            if arg.kind == "lit_str"   then aqt = "l"
-            elseif arg.kind == "lit_float" then aqt = "d"
-            elseif arg.kind == "var"   then aqt = lpp_qt_for_var(arg.vname) end
+            local aqt = lpp_node_qt(arg)
             if aqt == "arr" then aqt = "l" end
             lpp_callargs[#lpp_callargs+1] = aqt.." %"..t
         end
@@ -412,6 +508,16 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
             local t = lpp_mktmp("store")
             lpp_lower_xpr(buf, s.rhs, t)
             local qt = lpp_qt_for_var(s.vname)
+            -- sign-extend w->l only when the destination is explicitly "long" type.
+            -- str, dynamic arrays, and other l-typed variables hold pointers —
+            -- extsw on a pointer corrupts the upper 32 bits. "long" is the only
+            -- l-slot type that legitimately receives an integer w value.
+            local vtype_raw = lpp_cur_vartypes[s.vname] or ""
+            if vtype_raw == "long" and lpp_node_qt(s.rhs) == "w" then
+                local ext = lpp_mktmp("lext")
+                lpp_emit(buf, string.format("    %%%s =l extsw %%%s", ext, t))
+                t = ext
+            end
             if qt == "d" then
                 lpp_emit(buf, string.format("    stored %%%s, %%%s_slot", t, s.vname))
             elseif qt == "l" then
@@ -425,6 +531,13 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
         local t = lpp_mktmp("store")
         lpp_lower_xpr(buf, s.rhs, t)
         local qt = lpp_qt_for_var(s.vname)
+        -- sign-extend w->l only for "long" typed variables (not str/ptr/array).
+        local vtype_raw2 = lpp_cur_vartypes[s.vname] or lpp_globals[s.vname] or ""
+        if vtype_raw2 == "long" and lpp_node_qt(s.rhs) == "w" then
+            local ext = lpp_mktmp("lext")
+            lpp_emit(buf, string.format("    %%%s =l extsw %%%s", ext, t))
+            t = ext
+        end
         if lpp_globals[s.vname] then
             if qt == "d" then
                 lpp_emit(buf, string.format("    stored %%%s, $%s", t, s.vname))
@@ -523,13 +636,22 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
         lpp_emit(buf, "    jmp "..lc); lpp_emit(buf, lc)
         local cv = lpp_mktmp("loopcv"); lpp_lower_xpr(buf, s.cond, cv)
         lpp_emit(buf, string.format("    jnz %%%s, %s, %s", cv, lb, le))
-        lpp_emit(buf, lb); lpp_lower_block(buf, s.body, le, lc)
-        lpp_emit(buf, "    jmp "..lc); lpp_emit(buf, le)
+        lpp_emit(buf, lb)
+        if not lpp_lower_block(buf, s.body, le, lc) then
+            lpp_emit(buf, "    jmp "..lc)
+        end
+        lpp_emit(buf, le)
 
     elseif k == "forloop" then
         -- for i = start, limit [, step]
-        -- emit: i_slot = start; loop { if i >= limit break; body; i += step }
-        local lc = lpp_mklbl("forcond"); local lb = lpp_mklbl("forbody"); local le = lpp_mklbl("forexit")
+        -- layout: init -> cond -> body -> step -> cond (loop), exit on cond fail
+        -- continue must jump to the STEP label, not the cond label, so the
+        -- increment always runs before re-checking. jumping to cond skips the
+        -- increment and causes an infinite loop on odd iterations with continue.
+        local lc   = lpp_mklbl("forcond")
+        local lb   = lpp_mklbl("forbody")
+        local lstep = lpp_mklbl("forstep")
+        local le   = lpp_mklbl("forexit")
         -- init
         local tinit = lpp_mktmp("forinit")
         lpp_lower_xpr(buf, s.start, tinit)
@@ -542,9 +664,20 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
         lpp_emit(buf, string.format("    %%%s =w csltw %%%s, %%%s", tcmp, tiv, tlim))
         lpp_emit(buf, string.format("    jnz %%%s, %s, %s", tcmp, lb, le))
         lpp_emit(buf, lb)
-        -- body (last stmt is the step increment injected by parser)
-        lpp_lower_block(buf, s.body, le, lc)
-        lpp_emit(buf, "    jmp "..lc); lpp_emit(buf, le)
+        -- body: all stmts EXCEPT the last one (the injected step increment)
+        -- the step runs in its own block so continue lands there, not at cond
+        local body_stmts = s.body.stmts
+        local step_stmt  = body_stmts[#body_stmts]
+        local user_body  = {kind="block", stmts={}}
+        for i=1,#body_stmts-1 do user_body.stmts[i] = body_stmts[i] end
+        if not lpp_lower_block(buf, user_body, le, lstep) then
+            lpp_emit(buf, "    jmp "..lstep)
+        end
+        -- step block: always runs (continue lands here too)
+        lpp_emit(buf, lstep)
+        lpp_lower_stmt(buf, step_stmt, le, lstep)
+        lpp_emit(buf, "    jmp "..lc)
+        lpp_emit(buf, le)
 
     elseif k == "ifx" then
         local ly = lpp_mklbl("ifyes"); local ln = lpp_mklbl("ifno"); local ld = lpp_mklbl("ifdone")
@@ -561,6 +694,10 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
     elseif k == "casex" then
         -- case compiles as a chain of comparisons, not a jump table.
         -- simple and correct. not the fastest for 100+ arms but you're not writing that.
+        -- IMPORTANT: lpp_lower_block returns true if the block ended with a terminator
+        -- (ret/break/continue). in that case we must NOT emit a jmp after it — QBE
+        -- requires every block to end with exactly one terminator. the ifx handler does
+        -- this correctly; casex must do the same.
         local ld = lpp_mklbl("casedone")
         local sv = lpp_mktmp("casesub"); lpp_lower_xpr(buf, s.subject, sv)
         for i=1,#s.arms do
@@ -570,11 +707,20 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
             local cv = lpp_mktmp("casecmp")
             lpp_emit(buf, string.format("    %%%s =w ceqw %%%s, %%%s", cv, sv, av))
             lpp_emit(buf, string.format("    jnz %%%s, %s, %s", cv, lm, ln))
-            lpp_emit(buf, lm); lpp_lower_block(buf, arm.body, lpp_brk_lbl, lpp_cont_lbl)
-            lpp_emit(buf, "    jmp "..ld); lpp_emit(buf, ln)
+            lpp_emit(buf, lm)
+            if not lpp_lower_block(buf, arm.body, lpp_brk_lbl, lpp_cont_lbl) then
+                lpp_emit(buf, "    jmp "..ld)
+            end
+            lpp_emit(buf, ln)
         end
-        if s.default then lpp_lower_block(buf, s.default, lpp_brk_lbl, lpp_cont_lbl) end
-        lpp_emit(buf, "    jmp "..ld); lpp_emit(buf, ld)
+        if s.default then
+            if not lpp_lower_block(buf, s.default, lpp_brk_lbl, lpp_cont_lbl) then
+                lpp_emit(buf, "    jmp "..ld)
+            end
+        else
+            lpp_emit(buf, "    jmp "..ld)
+        end
+        lpp_emit(buf, ld)
 
     else
         lpp_cgerr("unhandled statement '"..tostring(k).."' — this is a compiler bug, please report it", s)
@@ -618,11 +764,15 @@ local function lpp_lower_func(buf, fn)
     lpp_cur_self_struct = fn.impl_struct or nil  -- set for methods, nil for regular functions
 
     -- build param signatures for QBE
+    -- structs are passed as pointers (l) — QBE has no by-value aggregate passing.
+    -- on entry we memcpy the pointed-to data into a local slot so the function
+    -- body can read/write fields without aliasing the caller's copy.
     local lpp_paramsigs = {}
     for i=1,#fn.params do
         local pt = fn.params[i].ptype or "int"
         local qt = lpp_type_qt(pt)
         if qt == "arr" then qt = "l" end  -- arrays pass as pointers
+        if lpp_cur_structs[pt] then qt = "l" end  -- structs pass as pointers too
         lpp_paramsigs[i] = qt.." %lpp_p_"..fn.params[i].pname
     end
 
@@ -669,13 +819,19 @@ local function lpp_lower_func(buf, fn)
         end
     end
 
-    -- store params into their slots so we can treat them like regular locals
+    -- store params into their slots so we can treat them like regular locals.
+    -- struct params arrive as pointers; memcpy the data into the local slot.
     for i=1,#fn.params do
         local pn = fn.params[i].pname
         local pt = fn.params[i].ptype or "int"
         local qt = lpp_type_qt(pt)
         if qt == "arr" then qt = "l" end
-        if qt == "d" then
+        if lpp_cur_structs[pt] then
+            -- struct param: copy from caller pointer into our own stack slot
+            local sdef = lpp_cur_structs[pt]
+            lpp_emit(buf, string.format("    %%%s_mc_sz =w copy %d", pn, sdef.size))
+            lpp_emit(buf, string.format("    call $memcpy(l %%%s_slot, l %%lpp_p_%s, w %%%s_mc_sz)", pn, pn, pn))
+        elseif qt == "d" then
             lpp_emit(buf, string.format("    stored %%lpp_p_%s, %%%s_slot", pn, pn))
         elseif qt == "l" then
             lpp_emit(buf, string.format("    storel %%lpp_p_%s, %%%s_slot", pn, pn))

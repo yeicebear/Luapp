@@ -14,10 +14,10 @@ local lpp_known_fns
 local lpp_known_structs
 local lpp_known_globals = {}  -- global varname -> type, checked by scope_lookup
 
--- these functions are always available even without a linkto.
--- print is an alias for print_int so it goes here too.
+-- print is a built-in alias for print_int — always available, no extern needed.
+-- everything else (stdlib, gamelib, ...) arrives via .lpplib header injection in main.lua.
 local lpp_builtins = {
-    print=1, print_str=1, print_int=1, print_float=1, print_char=1,
+    print=1,
 }
 
 -- scope is a stack of tables. push on enter, pop on leave.

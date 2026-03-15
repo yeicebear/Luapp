@@ -1,0 +1,35 @@
+extern func print_int(x: int): int
+extern func print_float(x: float): int
+extern func print_str(s: str): int
+extern func print_char(c: int): int
+extern func print_long(x: long): int
+extern func input_int(): int
+extern func input_char(): int
+extern func rand_int(mn: int, mx: int): int
+extern func time_ms(): int
+extern func sleep_ms(ms: int): int
+extern func str_len(s: str): int
+extern func str_get(s: str, i: int): int
+extern func str_cmp(a: str, b: str): int
+extern func file_open(path: str, mode: str): long
+extern func file_close(fptr: long): int
+extern func file_read_char(fptr: long): int
+extern func file_write_char(fptr: long, c: int): int
+extern func file_write_str(fptr: long, s: str): int
+extern func file_write_int(fptr: long, n: int): int
+extern func file_eof(fptr: long): int
+extern func arr_new(elemsize: int): long
+extern func arr_push_int(data: long, val: int): long
+extern func arr_push_long(data: long, val: long): long
+extern func arr_push_float(data: long, val: float): long
+extern func arr_len(data: long): int
+extern func arr_free(data: long): int
+extern func mem_alloc(n: int): long
+extern func mem_free(ptr: long): int
+extern func mem_copy(dst: long, src: long, n: int): int
+extern func mem_move(dst: long, src: long, n: int): int
+extern func mem_set(ptr: long, val: int, n: int): int
+extern func sb_new(): long
+extern func sb_append(h: long, s: str): long
+extern func sb_get(h: long): str
+extern func sb_free(h: long): int

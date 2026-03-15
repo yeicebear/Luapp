@@ -6,7 +6,7 @@
 //
 // also duplicates print_int, rand_int, sleep_ms etc from stdlib
 // so you don't have to linkto both. games need those too.
-
+// and fuck deez comments and fuck you claude never using u again EVERR :slay:
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +20,9 @@ static TTF_Font     *font = NULL;
 static int running = 0;
 
 
-// open a window. call this first before anything else.
+// open a window. call this first before anything else. OTHERWISE YOUR SHIT WILL BE ROCKED !!!! 
+/* Hey now! You're an all-start, get your game on, go PLAY!
+Hey now! You're a rock star, get your show on, get PAID!!!*/
 int canvas_init(int w, int h) {
     SDL_Init(SDL_INIT_VIDEO);
     TTF_Init();

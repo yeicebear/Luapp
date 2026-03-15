@@ -127,8 +127,8 @@ end
 
 -- ── hardcoded lies ────────────────────────────────────────────────────────────
 local known_c_trash = {
-    ["std"]     = { cfile="stdlib.c",  sdl=false },
-    ["gamelib"] = { cfile="gamelib.c", sdl=true  },
+    ["std"]     = { cfile="stdlib.c",  lpplib="stdlib.lpplib",  sdl=false },
+    ["gamelib"] = { cfile="gamelib.c", lpplib="gamelib.lpplib", sdl=true  },
 }
 
 -- ── argument disaster ─────────────────────────────────────────────────────────
@@ -251,6 +251,42 @@ local ok, err = pcall(function()
         end
     end
 
+    -- inject extern declarations from .lpplib headers BEFORE analysis so the
+    -- analyzer knows about all stdlib/gamelib functions without the user writing externs.
+    -- user-written externs always take priority — we skip any name already declared.
+    do
+        local lpp_known_extern_names = {}
+        for i=1,#ast_blob.externs do
+            lpp_known_extern_names[ast_blob.externs[i].fname] = true
+        end
+        local function inject_lpplib_early(path)
+            local f = io.open(path, "r")
+            if not f then return end
+            local src2 = f:read("*all"); f:close()
+            local hdr_ast = lpp_parser_doer(lpp_lexer_doer(src2))
+            for i=1,#hdr_ast.externs do
+                local ex = hdr_ast.externs[i]
+                if not lpp_known_extern_names[ex.fname] then
+                    ast_blob.externs[#ast_blob.externs+1] = ex
+                    lpp_known_extern_names[ex.fname] = true
+                end
+            end
+        end
+        for i=1,#ast_blob.links do
+            local lk = ast_blob.links[i]
+            if not lk.islpp then
+                local lib = known_c_trash[lk.libname]
+                if lib and lib.lpplib then
+                    local hpath = look_for_file_in_disaster(lib.lpplib)
+                    if hpath then
+                        lpp_log("injecting lpplib header: " .. hpath)
+                        inject_lpplib_early(hpath)
+                    end
+                end
+            end
+        end
+    end
+
     lpp_analyzer_doer(ast_blob)
 
     -- check for main() before codegen so the error is human-readable
@@ -291,6 +327,8 @@ local ok, err = pcall(function()
     local compiler_flags = {}
     local needs_sdl_garbage = false
 
+    -- externs are already injected by the pre-analysis pass above.
+    -- this loop only needs to collect .c file paths and sdl flags.
     for i=1,#ast_blob.links do
         local lk = ast_blob.links[i]
         if not lk.islpp then
@@ -394,6 +432,11 @@ end)
 
 if not ok then
     -- Lua prepends something like "input:47: " to errors thrown with error().
+    -- and the day that it breaks you fix it
+    -- TODO: Fix
+    -- TODO: Fix some more
+    -- TODO: Dont stop fixing 
+    -- TODO: Something's probabl still broken.
     -- Strip just that prefix so the user sees the clean lpp message.
     -- Use a non-greedy match anchored to the start, stopping at the first ": "
     local msg = tostring(err):gsub("^[^:\n]+:%d+: ", "")

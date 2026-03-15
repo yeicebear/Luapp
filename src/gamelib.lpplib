@@ -1,0 +1,25 @@
+extern func canvas_init(w: int, h: int): int
+extern func canvas_font(path: str, size: int): int
+extern func canvas_clear(r: int, g: int, b: int): int
+extern func canvas_color(r: int, g: int, b: int): int
+extern func canvas_present(): int
+extern func canvas_poll(): int
+extern func canvas_quit(): int
+extern func canvas_rect(x: int, y: int, w: int, h: int): int
+extern func canvas_rect_outline(x: int, y: int, w: int, h: int): int
+extern func canvas_pixel(x: int, y: int): int
+extern func canvas_line(x1: int, y1: int, x2: int, y2: int): int
+extern func canvas_text(x: int, y: int, r: int, g: int, b: int, text: str): int
+extern func canvas_int(x: int, y: int, r: int, g: int, b: int, n: int): int
+extern func canvas_float(x: int, y: int, r: int, g: int, b: int, n: float): int
+extern func canvas_key(k: int): int
+extern func canvas_mouse_x(): int
+extern func canvas_mouse_y(): int
+extern func canvas_mouse_btn(btn: int): int
+extern func print_int(x: int): int
+extern func print_str(s: str): int
+extern func print_float(x: float): int
+extern func print_char(c: int): int
+extern func rand_int(mn: int, mx: int): int
+extern func time_ms(): int
+extern func sleep_ms(ms: int): int
