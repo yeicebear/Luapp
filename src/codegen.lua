@@ -261,8 +261,11 @@ lpp_lower_xpr = function(buf, node, dest)
     elseif k == "arr_get" then
         -- index into an array: base_ptr + idx * elem_size
         -- for fixed arrays the base is the slot itself (stack pointer)
-        -- for dynamic arrays we load the pointer first then offset
-        local vt = lpp_cur_vartypes[node.vname] or "int[1]"
+        -- for dynamic arrays we load the pointer from the slot, then offset
+        -- if the variable is typed as "long" (raw pointer from arr_new),
+        -- treat it as int[] — same pointer-load-then-offset path.
+        local vt = lpp_cur_vartypes[node.vname] or lpp_globals[node.vname] or "int[1]"
+        if vt == "long" then vt = "int[]" end
         local arrbase, arrsz = lpp_parse_arrtype(vt)
         arrbase = arrbase or "int"
         local eqt = lpp_basetype_qt(arrbase)
@@ -558,7 +561,9 @@ lpp_lower_stmt = function(buf, s, lpp_brk_lbl, lpp_cont_lbl)
 
     elseif k == "arr_set" then
         -- same pointer arithmetic as arr_get but we store instead of load
-        local vt = lpp_cur_vartypes[s.vname] or "int[1]"
+        -- "long" typed variables are treated as int[] (raw pointer from arr_new)
+        local vt = lpp_cur_vartypes[s.vname] or lpp_globals[s.vname] or "int[1]"
+        if vt == "long" then vt = "int[]" end
         local arrbase, arrsz = lpp_parse_arrtype(vt)
         arrbase = arrbase or "int"
         local eqt = lpp_basetype_qt(arrbase)
