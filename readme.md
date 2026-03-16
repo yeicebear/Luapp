@@ -25,5 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/yeicebear/Luapp/main/install.sh
 # Join our Discord!
 https://discord.gg/Ksn3N9vaAE
 
+
+
 # TODO:
-- Nothing rn
+- Add concurrency
