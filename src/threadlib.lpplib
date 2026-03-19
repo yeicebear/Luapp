@@ -1,0 +1,17 @@
+extern func thread_mutex_new(): long
+extern func thread_mutex_lock(h: long): int
+extern func thread_mutex_unlock(h: long): int
+extern func thread_mutex_free(h: long): int
+extern func thread_spawn(fn_ptr: long, arg: int): long
+extern func thread_join(h: long): int
+extern func thread_done(h: long): int
+extern func thread_free(h: long): int
+extern func thread_chan_new(): long
+extern func thread_chan_send(h: long, val: int): int
+extern func thread_chan_recv(h: long): int
+extern func thread_chan_free(h: long): int
+extern func thread_atomic_new(init: int): long
+extern func thread_atomic_get(h: long): int
+extern func thread_atomic_set(h: long, val: int): int
+extern func thread_atomic_add(h: long, delta: int): int
+extern func thread_atomic_free(h: long): int

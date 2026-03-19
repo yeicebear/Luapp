@@ -1,0 +1,75 @@
+extern func math_sin(x: float): float
+extern func math_cos(x: float): float
+extern func math_tan(x: float): float
+extern func math_asin(x: float): float
+extern func math_acos(x: float): float
+extern func math_atan(x: float): float
+extern func math_atan2(y: float, x: float): float
+extern func math_sqrt(x: float): float
+extern func math_abs(x: float): float
+extern func math_floor(x: float): float
+extern func math_ceil(x: float): float
+extern func math_round(x: float): float
+extern func math_pow(b: float, e: float): float
+extern func math_log(x: float): float
+extern func math_log2(x: float): float
+extern func math_exp(x: float): float
+extern func math_pi(): float
+extern func math_min(a: float, b: float): float
+extern func math_max(a: float, b: float): float
+extern func math_clamp(v: float, lo: float, hi: float): float
+extern func math_min_int(a: int, b: int): int
+extern func math_max_int(a: int, b: int): int
+extern func math_clamp_int(v: int, lo: int, hi: int): int
+extern func math_lerp(a: float, b: float, t: float): float
+extern func math_remap(v: float, in_lo: float, in_hi: float, out_lo: float, out_hi: float): float
+extern func math_deg(r: float): float
+extern func math_rad(d: float): float
+extern func math_dist2(x1: float, y1: float, x2: float, y2: float): float
+extern func math_dist3(x1: float, y1: float, z1: float, x2: float, y2: float, z2: float): float
+extern func math_ease_in_quad(t: float): float
+extern func math_ease_out_quad(t: float): float
+extern func math_ease_inout_quad(t: float): float
+extern func math_ease_in_cubic(t: float): float
+extern func math_ease_out_cubic(t: float): float
+extern func math_ease_inout_cubic(t: float): float
+extern func math_ease_in_sine(t: float): float
+extern func math_ease_out_sine(t: float): float
+extern func math_ease_inout_sine(t: float): float
+extern func math_ease_in_elastic(t: float): float
+extern func math_ease_out_elastic(t: float): float
+extern func math_vec2_new(x: float, y: float): long
+extern func math_vec2_x(h: long): float
+extern func math_vec2_y(h: long): float
+extern func math_vec2_set(h: long, x: float, y: float): int
+extern func math_vec2_add(a: long, b: long): long
+extern func math_vec2_sub(a: long, b: long): long
+extern func math_vec2_scale(a: long, s: float): long
+extern func math_vec2_dot(a: long, b: long): float
+extern func math_vec2_len(a: long): float
+extern func math_vec2_norm(a: long): long
+extern func math_vec2_cross(a: long, b: long): float
+extern func math_vec2_free(h: long): int
+extern func math_vec3_new(x: float, y: float, z: float): long
+extern func math_vec3_x(h: long): float
+extern func math_vec3_y(h: long): float
+extern func math_vec3_z(h: long): float
+extern func math_vec3_add(a: long, b: long): long
+extern func math_vec3_sub(a: long, b: long): long
+extern func math_vec3_scale(a: long, s: float): long
+extern func math_vec3_dot(a: long, b: long): float
+extern func math_vec3_cross(a: long, b: long): long
+extern func math_vec3_len(a: long): float
+extern func math_vec3_norm(a: long): long
+extern func math_vec3_free(h: long): int
+extern func math_mat4_identity(): long
+extern func math_mat4_get(h: long, row: int, col: int): float
+extern func math_mat4_set(h: long, row: int, col: int, v: float): int
+extern func math_mat4_translate(tx: float, ty: float, tz: float): long
+extern func math_mat4_scale(sx: float, sy: float, sz: float): long
+extern func math_mat4_rot_z(angle_rad: float): long
+extern func math_mat4_mul(a: long, b: long): long
+extern func math_mat4_free(h: long): int
+extern func math_noise_seed(seed: int): int
+extern func math_noise2(x: float, y: float): float
+extern func math_noise2_octaves(x: float, y: float, octaves: int, persistence: float): float

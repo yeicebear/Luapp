@@ -1,0 +1,10 @@
+extern func net_connect(host: str, port: int): long
+extern func net_send(h: long, s: str): int
+extern func net_recv(h: long, n: int): str
+extern func net_recv_byte(h: long): int
+extern func net_close(h: long): int
+extern func net_listen(port: int): long
+extern func net_accept(sh: long): long
+extern func net_server_close(sh: long): int
+extern func net_http_get(host: str, port: int, path: str): str
+extern func net_http_status(): int

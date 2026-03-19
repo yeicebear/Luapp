@@ -1,59 +1,51 @@
--- i wrote this, i am sorry. it is a fragile house of cards.
--- usage: lpp <source.lpp> [-o output] [--run] [--target linux|windows]
+-- main.lua  |  sector_8:compiler_driver
+-- source.lpp → tokens → ast → checked ast → qbe ir → asm → binary.
+-- usage: lpp <file.lpp> [-o output] [--run] [--target linux|windows] [-v]
 --
--- --target windows   cross-compile to .exe because i can't find a real job
---                    requires: apt install gcc-mingw-w64-x86_64
--- --target linux     force ELF output because i am predictable
--- no --target        auto-detect because i am too lazy to choose
+-- library system:
+--   linkto "name" pulls in a .c file and injects extern declarations from
+--   a .lpplib header. every library is isolated — no shared symbols.
+--   you must be explicit. nothing is implicit.
 
-local lpp_lexer_doer    = require("lexer")
-local lpp_parser_doer   = require("parser")
-local lpp_analyzer_doer = require("analyze")
-local lpp_codegen_doer  = require("codegen")
+local tokenize = require("lexer")
+local parse    = require("parser")
+local analyze  = require("analyze")
+local codegen  = require("codegen")
 
-if type(lpp_lexer_doer)    == "table" then lpp_lexer_doer    = lpp_lexer_doer.lpp_tokenize    or lpp_lexer_doer.scan    end
-if type(lpp_parser_doer)   == "table" then lpp_parser_doer   = lpp_parser_doer.lpp_parse      or lpp_parser_doer.parse        end
-if type(lpp_analyzer_doer) == "table" then lpp_analyzer_doer = lpp_analyzer_doer.lpp_analyze or lpp_analyzer_doer.analyze    end
-if type(lpp_codegen_doer)  == "table" then lpp_codegen_doer  = lpp_codegen_doer.lpp_codegen   or lpp_codegen_doer.codegen    end
-
--- ── where am i even running this garbage ──────────────────────────────────────
-local lpp_host_windows_check = package.config:sub(1,1) == "\\"
-local lpp_host_mac_check     = false
-if not lpp_host_windows_check then
-    local up = io.popen("uname -s 2>/dev/null")
-    local us = up and up:read("*l") or ""
-    if up then up:close() end
-    lpp_host_mac_check = (us == "Darwin")
+local host_is_windows = package.config:sub(1,1) == "\\"
+local host_is_mac     = false
+if not host_is_windows then
+    local u = io.popen("uname -s 2>/dev/null")
+    local s = u and u:read("*l") or ""
+    if u then u:close() end
+    host_is_mac = (s == "Darwin")
 end
 
--- ── sad little utility functions ──────────────────────────────────────────────
-local function get_me_home_path()
+local function home_dir()
     return os.getenv("USERPROFILE") or os.getenv("HOME") or "."
 end
 
-local function look_for_file_in_disaster(name)
-    local candidates = {
-        get_me_home_path().."/.lpp/lib/"..name,
-        get_me_home_path().."/.local/lib/lpp/"..name,
+local function find_file(name)
+    local search_paths = {
+        home_dir().."/.lpp/lib/"..name,
+        home_dir().."/.local/lib/lpp/"..name,
         "/usr/local/lib/lpp/"..name,
         "./src/"..name,
         "./lib/"..name,
         "./"..name,
     }
-    for i=1,#candidates do
-        local f = io.open(candidates[i],"r")
-        if f then f:close(); return candidates[i] end
+    for _, p in ipairs(search_paths) do
+        local f = io.open(p, "r")
+        if f then f:close(); return p end
     end
 end
 
-local function execute_shell_command(cmd)
+local function shell(cmd)
     local r = os.execute(cmd)
-    if r == true  then return true  end
-    if r == false then return false end
-    return r == 0
+    return r == true or r == 0
 end
 
-local function capture_shell_vomit(cmd)
+local function capture(cmd)
     local pipe = io.popen(cmd.." 2>&1")
     if not pipe then return "", false end
     local out = pipe:read("*a") or ""
@@ -61,384 +53,314 @@ local function capture_shell_vomit(cmd)
     return out, (rc == true or rc == 0)
 end
 
-
-local function lpp_log(msg)
-    if lpp_verbose then io.stderr:write("lpp: " .. msg .. "\n") end
+local verbose = false
+local function log(msg)
+    if verbose then io.stderr:write("lpp: "..msg.."\n") end
 end
 
--- ── qbe hates windows, so i have to perform surgery ───────────────────────────
--- qbe is a genius, my asm-patching logic is a toddler with a blunt knife.
-local function lobotomize_asm_for_windows(path)
-    local af = io.open(path,"r")
-    if not af then return end
-    local asm = af:read("*a"); af:close()
+-- sector_8:lib_registry
+-- each entry: cfile, lpplib, and linker requirements.
+-- no two libraries may export the same symbol.
+local lib_registry = {
+    ["std"]       = { cfile="stdlib.c",    lpplib="stdlib.lpplib",    sdl=false, pthread=false, math=false },
+    ["gamelib"]   = { cfile="gamelib.c",   lpplib="gamelib.lpplib",   sdl=true,  pthread=false, math=false },
+    ["mathlib"]   = { cfile="mathlib.c",   lpplib="mathlib.lpplib",   sdl=false, pthread=false, math=true  },
+    ["threadlib"] = { cfile="threadlib.c", lpplib="threadlib.lpplib", sdl=false, pthread=true,  math=false },
+    ["netlib"]    = { cfile="netlib.c",    lpplib="netlib.lpplib",    sdl=false, pthread=false, math=false },
+    ["ailib"]     = { cfile="ailib.c",     lpplib="ailib.lpplib",     sdl=false, pthread=false, math=true  },
+}
 
-    -- 1. get rid of this because windows is allergic to it
-    asm = asm:gsub('[^\n]*%.note%.GNU%-stack[^\n]*\n?','')
-
-    -- 2. fix this because i am incapable of math
-    asm = asm:gsub('%.balign%s+0%f[%s\n]','.balign 1')
-
-    -- 3. stripping the 'q's because i am illiterate
-    asm = asm:gsub('%f[%a]callq%f[%A]','call')
-    asm = asm:gsub('%f[%a]jmpq%f[%A]', 'jmp')
-    asm = asm:gsub('%f[%a]pushq%f[%A]','push')
-    asm = asm:gsub('%f[%a]popq%f[%A]', 'pop')
-
-    -- 4. deleting comments because i don't trust my own writing
+-- strip qbe's linux-specific asm directives so mingw-gcc accepts the output
+local function patch_asm_for_windows(path)
+    local f   = io.open(path, "r"); if not f then return end
+    local asm = f:read("*a"); f:close()
+    asm = asm:gsub('[^\n]*%.note%.GNU%-stack[^\n]*\n?', '')
+    asm = asm:gsub('%.balign%s+0%f[%s\n]', '.balign 1')
+    asm = asm:gsub('%f[%a]callq%f[%A]', 'call')
+    asm = asm:gsub('%f[%a]jmpq%f[%A]',  'jmp')
+    asm = asm:gsub('%f[%a]pushq%f[%A]', 'push')
+    asm = asm:gsub('%f[%a]popq%f[%A]',  'pop')
     asm = asm:gsub('/%*.-%*/', '')
-
-    -- 5. hiding my shame
-    asm = asm:gsub('\n\n\n+','\n\n')
-
-    local af2 = io.open(path,"w")
-    af2:write(asm); af2:close()
+    asm = asm:gsub('\n\n\n+', '\n\n')
+    local f2 = io.open(path, "w"); f2:write(asm); f2:close()
 end
 
-
--- ── begging for dependencies ──────────────────────────────────────────────────
-local function install_sdl2_or_cry()
-    if execute_shell_command("pkg-config --exists sdl2 2>/dev/null") then return true end
-    io.stderr:write("lpp: sdl2 is missing and i am panicking...\n")
-    if lpp_host_mac_check then
-        execute_shell_command("brew install sdl2 sdl2_ttf")
+local function install_sdl2()
+    if shell("pkg-config --exists sdl2 2>/dev/null") then return true end
+    io.stderr:write("lpp: sdl2 not found, trying to install...\n")
+    if host_is_mac then
+        shell("brew install sdl2 sdl2_ttf")
+    elseif shell("which apt-get>/dev/null 2>&1") then
+        shell("sudo apt-get install -y libsdl2-dev libsdl2-ttf-dev")
+    elseif shell("which pacman>/dev/null 2>&1") then
+        shell("sudo pacman -S --noconfirm sdl2 sdl2_ttf")
+    elseif shell("which dnf>/dev/null 2>&1") then
+        shell("sudo dnf install -y SDL2-devel SDL2_ttf-devel")
     else
-        if     execute_shell_command("which apt-get>/dev/null 2>&1") then execute_shell_command("sudo apt-get install -y libsdl2-dev libsdl2-ttf-dev")
-        elseif execute_shell_command("which pacman>/dev/null 2>&1")  then execute_shell_command("sudo pacman -S --noconfirm sdl2 sdl2_ttf")
-        elseif execute_shell_command("which dnf>/dev/null 2>&1")     then execute_shell_command("sudo dnf install -y SDL2-devel SDL2_ttf-devel")
-        else
-            io.stderr:write("lpp: i can't fix this for you, fix it yourself.\n")
-            return false
-        end
+        io.stderr:write("lpp: install sdl2 manually:\n")
+        io.stderr:write("  ubuntu: sudo apt install libsdl2-dev libsdl2-ttf-dev\n")
+        return false
     end
     return true
 end
 
-local function install_cross_sdl2_or_fail()
-    if execute_shell_command("dpkg -s libsdl2-mingw-dev>/dev/null 2>&1") then return true end
-    io.stderr:write("lpp: cross-sdl2 is missing, i am trying to fix it...\n")
-    if execute_shell_command("sudo apt-get install -y libsdl2-dev libsdl2-ttf-dev gcc-mingw-w64-x86_64 2>/dev/null") then
+local function install_cross_sdl2()
+    if shell("dpkg -s libsdl2-mingw-dev>/dev/null 2>&1") then return true end
+    io.stderr:write("lpp: cross-sdl2 not found, trying to install...\n")
+    if shell("sudo apt-get install -y libsdl2-dev libsdl2-ttf-dev gcc-mingw-w64-x86_64 2>/dev/null") then
         return true
     end
-    io.stderr:write("lpp: i am useless.\n")
-    io.stderr:write("     try: sudo apt install libsdl2-mingw-dev libsdl2-ttf-mingw-dev\n")
+    io.stderr:write("lpp: try: sudo apt install libsdl2-mingw-dev libsdl2-ttf-mingw-dev\n")
     return false
 end
 
--- ── hardcoded lies ────────────────────────────────────────────────────────────
-local known_c_trash = {
-    ["std"]     = { cfile="stdlib.c",  lpplib="stdlib.lpplib",  sdl=false },
-    ["gamelib"] = { cfile="gamelib.c", lpplib="gamelib.lpplib", sdl=true  },
-}
-
--- ── argument disaster ─────────────────────────────────────────────────────────
-local input_file_to_process = nil
-local output_bin_name       = nil
-local run_it_after_maybe    = false
-local target_platform       = nil
-local lpp_verbose           = false
-
+-- sector_8:arg_parse
+local input_file        = nil
+local output_bin        = nil
+local run_after         = false
+local target            = nil
+local conserve_artifacts = false
 do
     local argv = arg or {}
-    local i = 1
+    local i    = 1
     while i <= #argv do
-        if argv[i] == "-o" then
-            if not argv[i+1] then error("-o requires a filename") end
-            output_bin_name = argv[i+1]; i = i+2
-        elseif argv[i] == "--target" then
-            if not argv[i+1] then error("--target requires linux or windows") end
-            target_platform = argv[i+1]; i = i+2
-        elseif argv[i] == "--run" or argv[i] == "-r" then run_it_after_maybe = true; i = i+1
-        elseif argv[i] == "--verbose" or argv[i] == "-v" then lpp_verbose = true; i = i+1
-        elseif argv[i] == "--version" then print("lpp 0.4.0"); os.exit(0)
-        elseif argv[i] == "--license" then
-            print("MIT License\nCopyright (c) 2026 yeicebear/icebearunreal\n(full text: run with --license-full)")
+        local a = argv[i]
+        if     a=="-o"        then output_bin = argv[i+1]; i=i+2
+        elseif a=="--target"  then target     = argv[i+1]; i=i+2
+        elseif a=="--run" or a=="-r"        then run_after=true;  i=i+1
+        elseif a=="--verbose" or a=="-v"    then verbose=true;    i=i+1
+        elseif a=="--version" then print("lpp 0.5.0"); os.exit(0)
+        elseif a=="--conserve-artifacts" then conserve_artifacts=true; i=i+1
+        elseif a=="--license" then
+            print("MIT License\nCopyright (c) 2026 yeicebear/icebearunreal")
             os.exit(0)
-        elseif argv[i] == "--help" then
-            print("lpp — Lua++ (made by a fool)")
-            print("usage:  lpp <file.lpp> [flags]")
+        elseif a=="--help" then
+            print("lpp — compiled language targeting QBE IR")
+            print("usage: lpp <file.lpp> [flags]")
             print("")
-            print("  -o <name>         output binary name")
-            print("  --target <t>      target platform: linux or windows")
-            print("                    linux   = native ELF (default on linux/mac)")
-            print("                    windows = cross-compile .exe (linux/mac host)")
-            print("                    on windows host, always produces .exe")
-            print("  --run             compile then run (native target only)")
-            print("  --version         print version")
-            print("  --verbose / -v    print every step (what files, what commands)")
-            print("  --help            this text")
+            print("  -o <name>        output binary")
+            print("  --target <t>     linux or windows")
+            print("  --run / -r       compile then run")
+            print("  --verbose / -v   print each step")
             print("")
-            print("cross-compile to windows from linux:")
-            print("  sudo apt install gcc-mingw-w64-x86_64")
-            print("  lpp mygame.lpp --target windows -o mygame")
-            print("  → produces mygame.exe, no MSYS2 needed on the target machine")
+            print("libraries (use linkto in your .lpp file):")
+            local names = {}
+            for k in pairs(lib_registry) do names[#names+1] = k end
+            table.sort(names)
+            for _, n in ipairs(names) do print("  "..n) end
             print("")
-            print("stdlib:")
-            print("  linkto \"std\"      print, input, rand, sleep, time")
-            print("  linkto \"gamelib\"  sdl2 canvas (requires sdl2 installed)")
+            print("rules: every library is independent. no two share any function.")
+            print("std and gamelib both define print_int — don't linkto both.")
             os.exit(0)
         else
-            input_file_to_process = argv[i]; i = i+1
+            input_file = argv[i]; i=i+1
         end
     end
 end
 
+if verbose then
+    io.stderr:write("lpp: args parsed, input="..tostring(input_file).."\n")
+end
 
-    if lpp_verbose then
-        io.stderr:write("lpp verbose: #arg=" .. tostring(#(arg or {})) .. "\n")
-        for k,v in pairs(arg or {}) do
-            io.stderr:write("  arg[" .. tostring(k) .. "] = " .. tostring(v) .. "\n")
-        end
-    end
-if not input_file_to_process then
-    io.stderr:write("lpp: you forgot the file, genius.\n  usage: lpp <file.lpp> [-o out] [--target windows|linux] [--run]\n")
+if not input_file then
+    io.stderr:write("lpp: no input file. usage: lpp <file.lpp>\n")
     os.exit(1)
 end
 
-if target_platform == nil then
-    -- mac and linux both use native cc and produce runnable binaries the same way
-    target_platform = lpp_host_windows_check and "windows" or "linux"
-elseif target_platform ~= "linux" and target_platform ~= "windows" then
-    io.stderr:write("lpp: i don't know what '"..target_platform.."' is.\n")
+if not target then
+    target = host_is_windows and "windows" or "linux"
+elseif target ~= "linux" and target ~= "windows" then
+    io.stderr:write("lpp: unknown target '"..target.."' — use linux or windows\n")
     os.exit(1)
 end
 
-local is_targeting_windows_now = (target_platform == "windows")
-local is_a_cross_compile_nightmare = is_targeting_windows_now and not lpp_host_windows_check
+local win_target = target == "windows"
+local cross      = win_target and not host_is_windows
 
-if not output_bin_name then
-    output_bin_name = is_targeting_windows_now and "a.exe" or "a.out"
-end
+if not output_bin then output_bin = win_target and "a.exe" or "a.out" end
+if win_target and not output_bin:match("%.[^/\\]+$") then output_bin = output_bin..".exe" end
 
-if is_targeting_windows_now and not output_bin_name:match("%.[^/\\]+$") then
-    output_bin_name = output_bin_name..".exe"
-end
-
--- ── the main spaghetti pipeline ───────────────────────────────────────────────
+-- sector_8:compile_pipeline
 local ok, err = pcall(function()
 
-    local fh = io.open(input_file_to_process,"r")
-    if not fh then error("i couldn't even open '"..input_file_to_process.."'") end
+    local fh = io.open(input_file, "r")
+    if not fh then error("can't open '"..input_file.."'") end
     local src = fh:read("*all"); fh:close()
 
-    lpp_log("parsing " .. input_file_to_process)
-    local ast_blob = lpp_parser_doer(lpp_lexer_doer(src))
+    log("lex+parse "..input_file)
+    local ast = parse(tokenize(src))
 
-    local function blend_lpp_files_into_disaster(ast, path)
-        local f = io.open(path,"r")
-        if not f then error("linkto: can't open file at '"..path.."'") end
-        local src2 = f:read("*all"); f:close()
-        local ast2 = lpp_parser_doer(lpp_lexer_doer(src2))
-        for i=1,#ast2.funcs   do ast.funcs[#ast.funcs+1]   = ast2.funcs[i]   end
-        for i=1,#ast2.externs do ast.externs[#ast.externs+1] = ast2.externs[i] end
-        for i=1,#ast2.links   do
-            if not ast2.links[i].islpp then
-                ast.links[#ast.links+1] = ast2.links[i]
-            end
-        end
-    end
-
-    local lpp_sep  = lpp_host_windows_check and "\\" or "/"
-    local lpp_indir = input_file_to_process:match("^(.*)[/\\]") or "."
-    for i=1,#ast_blob.links do
-        local lk = ast_blob.links[i]
+    -- merge .lpp linkto files into the ast before analysis
+    local sep    = host_is_windows and "\\" or "/"
+    local indir  = input_file:match("^(.*)[/\\]") or "."
+    for _, lk in ipairs(ast.links) do
         if lk.islpp then
             local path = lk.libname
             if not path:match("^[/\\]") and not path:match("^%a:") then
-                path = lpp_indir..lpp_sep..path
+                path = indir..sep..path
             end
-            blend_lpp_files_into_disaster(ast_blob, path)
+            local f2 = io.open(path, "r")
+            if not f2 then error("linkto: can't open '"..path.."'") end
+            local src2 = f2:read("*all"); f2:close()
+            local ast2 = parse(tokenize(src2))
+            for _, fn in ipairs(ast2.funcs)   do ast.funcs[#ast.funcs+1]     = fn  end
+            for _, ex in ipairs(ast2.externs) do ast.externs[#ast.externs+1] = ex  end
+            for _, lk2 in ipairs(ast2.links)  do
+                if not lk2.islpp then ast.links[#ast.links+1] = lk2 end
+            end
         end
     end
 
-    -- inject extern declarations from .lpplib headers BEFORE analysis so the
-    -- analyzer knows about all stdlib/gamelib functions without the user writing externs.
-    -- user-written externs always take priority — we skip any name already declared.
+    -- inject extern declarations from .lpplib headers
     do
-        local lpp_known_extern_names = {}
-        for i=1,#ast_blob.externs do
-            lpp_known_extern_names[ast_blob.externs[i].fname] = true
-        end
-        local function inject_lpplib_early(path)
-            local f = io.open(path, "r")
-            if not f then return end
+        local seen_externs = {}
+        for _, ex in ipairs(ast.externs) do seen_externs[ex.fname] = true end
+
+        local function inject_lpplib(path)
+            local f = io.open(path, "r"); if not f then return end
             local src2 = f:read("*all"); f:close()
-            local hdr_ast = lpp_parser_doer(lpp_lexer_doer(src2))
-            for i=1,#hdr_ast.externs do
-                local ex = hdr_ast.externs[i]
-                if not lpp_known_extern_names[ex.fname] then
-                    ast_blob.externs[#ast_blob.externs+1] = ex
-                    lpp_known_extern_names[ex.fname] = true
+            local hdr  = parse(tokenize(src2))
+            for _, ex in ipairs(hdr.externs) do
+                if not seen_externs[ex.fname] then
+                    ast.externs[#ast.externs+1] = ex
+                    seen_externs[ex.fname] = true
                 end
             end
         end
-        for i=1,#ast_blob.links do
-            local lk = ast_blob.links[i]
+
+        for _, lk in ipairs(ast.links) do
             if not lk.islpp then
-                local lib = known_c_trash[lk.libname]
+                local lib = lib_registry[lk.libname]
                 if lib and lib.lpplib then
-                    local hpath = look_for_file_in_disaster(lib.lpplib)
+                    local hpath = find_file(lib.lpplib)
                     if hpath then
-                        lpp_log("injecting lpplib header: " .. hpath)
-                        inject_lpplib_early(hpath)
+                        log("inject header: "..hpath)
+                        inject_lpplib(hpath)
+                    else
+                        io.stderr:write("lpp: warning: can't find "..lib.lpplib.."\n")
                     end
+                elseif not lib then
+                    local known = {}
+                    for k in pairs(lib_registry) do known[#known+1] = k end
+                    table.sort(known)
+                    error("unknown library \""..lk.libname.."\"\n"..
+                          "  known: "..table.concat(known, ", "))
                 end
             end
         end
     end
 
-    lpp_analyzer_doer(ast_blob)
+    log("analyze")
+    analyze(ast)
 
-    -- check for main() before codegen so the error is human-readable
     local has_main = false
-    for i=1,#ast_blob.funcs do
-        if ast_blob.funcs[i].fname == "main" then has_main = true; break end
-    end
-    if not has_main and not (ast_blob.toplevel_stmts and #ast_blob.toplevel_stmts > 0) then
-        error(
-            "lpp: no main() function found in '"..input_file_to_process.."'\n\n" ..
-            "every lpp program needs an entry point. define it like this:\n\n" ..
-            "    func main(): int {\n" ..
-            "        // your code here\n" ..
-            "        return 0\n" ..
-            "    }\n"
-        )
+    for _, fn in ipairs(ast.funcs) do if fn.fname=="main" then has_main=true; break end end
+    if not has_main and not (ast.toplevel_stmts and #ast.toplevel_stmts > 0) then
+        error("no main() in '"..input_file.."'\n\n"..
+              "    func main(): int {\n        return 0\n    }\n")
     end
 
-    lpp_log("running codegen")
-    local ssa_output = lpp_codegen_doer(ast_blob)
+    log("codegen")
+    local ir_text = codegen(ast)
 
-    local ssa_file_path = input_file_to_process..".ssa"
-    local asm_file_path = input_file_to_process..".s"
+    local ssa_path = input_file..".ssa"
+    local asm_path = input_file..".s"
+    local sf       = io.open(ssa_path, "w"); sf:write(ir_text); sf:close()
 
-    local sf = io.open(ssa_file_path,"w"); sf:write(ssa_output); sf:close()
+    local qbe_bin = host_is_windows and "qbe.exe" or "qbe"
+    local qbe_cmd = string.format('%s -o "%s" "%s"', qbe_bin, asm_path, ssa_path)
+    log("qbe: "..qbe_cmd)
+    local qbe_out, qbe_ok = capture(qbe_cmd)
+    if not qbe_ok then error("qbe failed:\n"..qbe_out) end
 
-    local qbe_executable = lpp_host_windows_check and "qbe.exe" or "qbe"
-    local qbe_invocation = string.format('%s -o "%s" "%s"', qbe_executable, asm_file_path, ssa_file_path)
-    lpp_log("running qbe: " .. qbe_invocation)
-    local qbe_vomit, qbe_was_good = capture_shell_vomit(qbe_invocation)
-    if not qbe_was_good then error("qbe failed, obviously:\n"..qbe_vomit) end
+    if win_target then patch_asm_for_windows(asm_path) end
 
-    if is_targeting_windows_now then
-        lobotomize_asm_for_windows(asm_file_path)
-    end
+    local c_files    = {}
+    local link_flags = {}
+    local need_sdl   = false
+    local need_math  = false
+    local need_pthrd = false
 
-    local c_files_list  = {}
-    local compiler_flags = {}
-    local needs_sdl_garbage = false
-
-    -- externs are already injected by the pre-analysis pass above.
-    -- this loop only needs to collect .c file paths and sdl flags.
-    for i=1,#ast_blob.links do
-        local lk = ast_blob.links[i]
+    for _, lk in ipairs(ast.links) do
         if not lk.islpp then
-            local lib = known_c_trash[lk.libname]
+            local lib = lib_registry[lk.libname]
             if lib then
-                local path = look_for_file_in_disaster(lib.cfile)
-                if path then
-                    c_files_list[#c_files_list+1] = '"'..path..'"'
-                else
-                    io.stderr:write("lpp: warning: can't find "..lib.cfile..", good luck\n")
+                local path = find_file(lib.cfile)
+                if path then c_files[#c_files+1] = '"'..path..'"'
+                else io.stderr:write("lpp: warning: can't find "..lib.cfile.."\n")
                 end
-                if lib.sdl then needs_sdl_garbage = true end
-            else
-                io.stderr:write("lpp: warning: unknown library \""..lk.libname.."\", ignoring.\n")
+                if lib.sdl     then need_sdl   = true end
+                if lib.math    then need_math   = true end
+                if lib.pthread then need_pthrd  = true end
             end
         end
     end
 
-    if needs_sdl_garbage then
-        if is_a_cross_compile_nightmare then
-            if not install_cross_sdl2_or_fail() then
-                error("cross-sdl2 not available, try harder.")
-            end
-            compiler_flags[#compiler_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
-            compiler_flags[#compiler_flags+1] = "-I/usr/x86_64-w64-mingw32/include"
-        elseif is_targeting_windows_now then
-            if not execute_shell_command("where SDL2.dll>nul 2>&1") then
-                io.stderr:write("lpp: sdl2 not found.\n")
-                io.stderr:write("     pacman -S mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_ttf\n")
-                error("sdl2 missing, as usual")
-            end
-            compiler_flags[#compiler_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
+    if need_math  then link_flags[#link_flags+1] = "-lm"       end
+    if need_pthrd then link_flags[#link_flags+1] = "-lpthread"  end
+
+    if need_sdl then
+        if cross then
+            if not install_cross_sdl2() then error("cross-sdl2 unavailable") end
+            link_flags[#link_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
+            link_flags[#link_flags+1] = "-I/usr/x86_64-w64-mingw32/include"
+        elseif win_target then
+            link_flags[#link_flags+1] = "-lSDL2 -lSDL2_ttf -lm"
         else
-            if not install_sdl2_or_cry() then error("sdl2 not available, i am sad") end
-            compiler_flags[#compiler_flags+1] = "$(pkg-config --libs sdl2 SDL2_ttf) -lm"
+            if not install_sdl2() then error("sdl2 unavailable") end
+            link_flags[#link_flags+1] = "$(pkg-config --libs sdl2 SDL2_ttf) -lm"
         end
     end
 
-    local temp_wrapper_path
-    if lpp_host_windows_check then
+    local tmp_wrap
+    if host_is_windows then
         local td = os.getenv("TEMP") or os.getenv("TMP") or "C:\\Temp"
-        temp_wrapper_path = td.."\\lpp_wrap_"..os.time().."_"..math.random(10000,99999)..".c"
+        tmp_wrap = td.."\\lpp_wrap_"..os.time()..math.random(10000,99999)..".c"
     else
-        temp_wrapper_path = "/tmp/lpp_wrap_"..os.time().."_"..math.random(10000,99999)..".c"
+        tmp_wrap = "/tmp/lpp_wrap_"..os.time()..math.random(10000,99999)..".c"
     end
-    local wf = io.open(temp_wrapper_path,"w")
-    if not wf then error("i couldn't write the temp file: "..temp_wrapper_path) end
+    local wf = io.open(tmp_wrap, "w")
+    if not wf then error("can't write temp file: "..tmp_wrap) end
     wf:write("extern int lang_main();\nint main(){return lang_main();}\n")
     wf:close()
 
-    local compiler_to_use
-    if is_a_cross_compile_nightmare then
-        compiler_to_use = "x86_64-w64-mingw32-gcc"
-    elseif lpp_host_windows_check then
-        compiler_to_use = "gcc"
-    else
-        compiler_to_use = "cc"
-    end
-
-    local win_linker_flags = is_targeting_windows_now
+    local cc       = cross and "x86_64-w64-mingw32-gcc" or host_is_windows and "gcc" or "cc"
+    local win_extra = win_target
         and "-lkernel32 -static-libgcc -Wl,-Bstatic -lmingwex -Wl,-Bdynamic"
-        or ""
+        or  ""
 
-    local full_compiler_cmd = string.format('%s "%s" "%s" %s -o "%s" %s %s',
-        compiler_to_use,
-        asm_file_path,
-        temp_wrapper_path,
-        table.concat(c_files_list," "),
-        output_bin_name,
-        table.concat(compiler_flags," "),
-        win_linker_flags)
+    local cc_cmd = string.format('%s "%s" "%s" %s -o "%s" %s %s',
+        cc, asm_path, tmp_wrap,
+        table.concat(c_files, " "),
+        output_bin,
+        table.concat(link_flags, " "),
+        win_extra)
 
-    lpp_log("running compiler: " .. full_compiler_cmd)
-    local compile_vomit, compile_was_good = capture_shell_vomit(full_compiler_cmd)
-    if not compile_was_good then
-        error("compiler gave up:\n"..compile_vomit.."\ncmd: "..full_compiler_cmd)
+    log("cc: "..cc_cmd)
+    local cc_out, cc_ok = capture(cc_cmd)
+    if not cc_ok then error("compiler failed:\n"..cc_out.."\ncmd: "..cc_cmd) end
+
+    os.remove(tmp_wrap)
+    if cross then io.stderr:write("lpp: built "..output_bin.." (windows, cross-compiled)\n") end
+    if not conserve_artifacts then
+        if ssa_path then os.remove(ssa_path) end
+        if asm_path then os.remove(asm_path) end
     end
 
-    lpp_log("cleaning up " .. temp_wrapper_path)
-    os.remove(temp_wrapper_path)
-
-    if is_a_cross_compile_nightmare then
-        io.stderr:write("lpp: built "..output_bin_name.." (windows .exe, cross-compiled)\n")
-    end
-
-    if run_it_after_maybe then
-        if is_targeting_windows_now and not lpp_host_windows_check then
-            -- can't run a windows .exe on linux or mac without wine
-            io.stderr:write("lpp: --run skipped (can't execute a Windows .exe on this host)\n")
-        elseif lpp_host_windows_check then
-            execute_shell_command('"'..output_bin_name..'"')
+    if run_after then
+        if win_target and not host_is_windows then
+            io.stderr:write("lpp: --run skipped (can't execute .exe on this host)\n")
+        elseif host_is_windows then
+            shell('"'..output_bin..'"')
         else
-            -- linux and macOS: just prepend ./ if it's not an absolute path
-            local cmd = output_bin_name
-            if not cmd:match("^/") then cmd = "./" .. cmd end
-            execute_shell_command(cmd)
+            local run_cmd = output_bin:match("^/") and output_bin or "./"..output_bin
+            shell(run_cmd)
         end
     end
 
 end)
 
 if not ok then
-    -- Lua prepends something like "input:47: " to errors thrown with error().
-    -- and the day that it breaks you fix it
-    -- TODO: Fix
-    -- TODO: Fix some more
-    -- TODO: Dont stop fixing 
-    -- TODO: Something's probabl still broken.
-    -- Strip just that prefix so the user sees the clean lpp message.
-    -- Use a non-greedy match anchored to the start, stopping at the first ": "
     local msg = tostring(err):gsub("^[^:\n]+:%d+: ", "")
     io.stderr:write(msg.."\n")
     os.exit(1)

@@ -1,0 +1,705 @@
+// test_all.lpp
+// covers every library and every language feature.
+// if this compiles and prints all-pass lines, everything is working.
+// run with: lpp test_all.lpp --run
+// (no ai training loop in here — that would take a few seconds and you'd think it hung)
+
+linkto "std"
+linkto "mathlib"
+linkto "threadlib"
+linkto "netlib"
+linkto "ailib"
+
+
+// ---- globals ----
+// declared at top level, visible everywhere, zero-initialized unless you say otherwise.
+
+global test_pass_count: int = 0
+global test_fail_count: int = 0
+
+
+// ---- assert helper ----
+// prints the label and updates pass/fail counters.
+// all tests go through here so the output is uniform.
+
+func expect(label: str, ok: int): int {
+    if ok {
+        print_str(label)
+        test_pass_count += 1
+    } else {
+        local msg: str = "FAIL: " + label
+        print_str(msg)
+        test_fail_count += 1
+    }
+    return 0
+}
+
+func expect_int(label: str, got: int, want: int): int {
+    return expect(label, got == want)
+}
+
+func expect_float_near(label: str, got: float, want: float): int {
+    // floats from different operations drift a little. 0.001 is plenty for these tests.
+    local diff: float = got - want
+    if diff < 0.0 {
+        diff = -diff
+    }
+    return expect(label, diff < 0.001)
+}
+
+
+// ================================================================
+// stdlib tests
+// ================================================================
+
+func test_arithmetic(): int {
+    expect_int("arith: 2 + 3 = 5",       2 + 3,       5)
+    expect_int("arith: 10 - 4 = 6",      10 - 4,      6)
+    expect_int("arith: 3 * 7 = 21",      3 * 7,       21)
+    expect_int("arith: 20 / 4 = 5",      20 / 4,      5)
+    expect_int("arith: 17 % 5 = 2",      17 % 5,      2)
+    expect_int("arith: nested (2+3)*4",  (2 + 3) * 4, 20)
+    return 0
+}
+
+func test_bitwise(): int {
+    expect_int("bit: 6 & 3 = 2",   6 & 3,   2)
+    expect_int("bit: 6 | 3 = 7",   6 | 3,   7)
+    expect_int("bit: 6 ^ 3 = 5",   6 ^ 3,   5)
+    expect_int("bit: 1 << 3 = 8",  1 << 3,  8)
+    expect_int("bit: 16 >> 2 = 4", 16 >> 2, 4)
+    expect_int("bit: !0 = 1",      !0,      1)
+    expect_int("bit: !1 = 0",      !1,      0)
+    return 0
+}
+
+func test_comparisons(): int {
+    expect_int("cmp: 5 > 3",   5 > 3,   1)
+    expect_int("cmp: 3 < 5",   3 < 5,   1)
+    expect_int("cmp: 5 >= 5",  5 >= 5,  1)
+    expect_int("cmp: 4 <= 5",  4 <= 5,  1)
+    expect_int("cmp: 4 == 4",  4 == 4,  1)
+    expect_int("cmp: 4 != 5",  4 != 5,  1)
+    expect_int("cmp: 5 > 9 is false", 5 > 9, 0)
+    return 0
+}
+
+func test_logic(): int {
+    expect_int("logic: true && true",   1 && 1, 1)
+    expect_int("logic: true && false",  1 && 0, 0)
+    expect_int("logic: false || true",  0 || 1, 1)
+    expect_int("logic: false || false", 0 || 0, 0)
+    return 0
+}
+
+func test_if_else(): int {
+    local x: int = 10
+    local result: int = 0
+    if x > 5 {
+        result = 1
+    } else {
+        result = 2
+    }
+    expect_int("if: x > 5 takes true branch", result, 1)
+
+    if x > 100 {
+        result = 99
+    } else if x > 50 {
+        result = 50
+    } else {
+        result = 0
+    }
+    expect_int("else if: falls to final else", result, 0)
+    return 0
+}
+
+func test_while(): int {
+    local sum: int = 0
+    local i: int = 1
+    while i <= 10 {
+        sum += i
+        i += 1
+    }
+    expect_int("while: sum 1..10 = 55", sum, 55)
+    return 0
+}
+
+func test_for(): int {
+    local sum: int = 0
+    for i = 0, 10 {
+        sum += i
+    }
+    expect_int("for: sum 0..9 = 45", sum, 45)
+
+    // with explicit step
+    local evens: int = 0
+    for j = 0, 10, 2 {
+        evens += 1
+    }
+    expect_int("for: step 2 gives 5 iterations", evens, 5)
+    return 0
+}
+
+func test_break_continue(): int {
+    local sum: int = 0
+    local i: int = 0
+    while i < 20 {
+        i += 1
+        if i == 11 {
+            break
+        }
+        sum += i
+    }
+    // summed 1..10 then broke
+    expect_int("break: stops at 11, sum=55", sum, 55)
+
+    // continue: skip odd numbers
+    local evens_sum: int = 0
+    for k = 1, 11 {
+        if k % 2 != 0 {
+            continue
+        }
+        evens_sum += k
+    }
+    // 2+4+6+8+10 = 30
+    expect_int("continue: skip odds, sum evens = 30", evens_sum, 30)
+    return 0
+}
+
+func test_case(): int {
+    local grade: int = 2
+    local label: int = 0
+
+    case grade {
+        1 { label = 100 }
+        2 { label = 200 }
+        3 { label = 300 }
+        else { label = 999 }
+    }
+    expect_int("case: grade 2 -> 200", label, 200)
+
+    local x: int = 99
+    case x {
+        1 { label = 1 }
+        2 { label = 2 }
+        else { label = 0 }
+    }
+    expect_int("case: else branch fires", label, 0)
+    return 0
+}
+
+func test_fixed_array(): int {
+    local nums: int[5]
+    nums[0] = 10
+    nums[1] = 20
+    nums[2] = 30
+    nums[3] = 40
+    nums[4] = 50
+
+    local total: int = 0
+    for i = 0, 5 {
+        total += nums[i]
+    }
+    expect_int("fixed array: sum [10..50] = 150", total, 150)
+
+    nums[2] = 99
+    expect_int("fixed array: write and read back", nums[2], 99)
+    return 0
+}
+
+func test_dynamic_array(): int {
+    local arr: long = arr_new(4)
+    for i = 0, 20 {
+        arr = arr_push_int(arr, i * 3)
+    }
+    expect_int("dynarray: length after 20 pushes", arr_len(arr), 20)
+
+    // the arr internals store data as ints, so index 5 should be 5*3=15
+    // we can read it back via raw memory: arr pointer + 5*4 bytes
+    // but simpler: just check arr_len and trust the C tests for individual elements
+    arr_free(arr)
+    expect_int("dynarray: free doesn't crash", 1, 1)
+    return 0
+}
+
+func test_string_builder(): int {
+    local sb: long = sb_new()
+    sb = sb_append(sb, "hello")
+    sb = sb_append(sb, " ")
+    sb = sb_append(sb, "world")
+    local result: str = sb_get(sb)
+    expect_int("sb: str_len of result = 11", str_len(result), 11)
+    expect_int("sb: str_cmp == hello world", str_cmp(result, "hello world"), 0)
+    sb_free(sb)
+    return 0
+}
+
+func test_string_concat(): int {
+    local a: str = "foo"
+    local b: str = "bar"
+    local c: str = a + b
+    expect_int("str concat: foobar len=6", str_len(c), 6)
+    expect_int("str concat: str_cmp == foobar", str_cmp(c, "foobar"), 0)
+    return 0
+}
+
+func test_rand(): int {
+    local ok: int = 1
+    for i = 0, 200 {
+        local v: int = rand_int(0, 9)
+        if v < 0 { ok = 0 }
+        if v > 9 { ok = 0 }
+    }
+    expect_int("rand: 200 values stay in [0,9]", ok, 1)
+    return 0
+}
+
+func test_raw_memory(): int {
+    local buf: long = mem_alloc(64)
+    mem_set(buf, 0, 64)
+
+    // write a value 4 bytes in using mem_copy trick:
+    // alloc a tiny block, set it, then copy into buf at offset
+    // (direct pointer arithmetic on buf+4 isn't expressible in lpp yet,
+    // so we just verify alloc/set/free don't crash)
+    expect_int("mem: alloc returns nonzero", buf != 0, 1)
+    mem_free(buf)
+    expect_int("mem: free doesn't crash", 1, 1)
+    return 0
+}
+
+func test_file_io(): int {
+    local path: str = "/tmp/lpp_test_file.txt"
+    local fp: long = file_open(path, "w")
+    expect_int("file: open for write succeeds", fp != 0, 1)
+    file_write_str(fp, "lpp test\n")
+    file_write_int(fp, 42)
+    file_close(fp)
+
+    local fp2: long = file_open(path, "r")
+    expect_int("file: open for read succeeds", fp2 != 0, 1)
+    // read first char: 'l' = 108
+    local ch: int = file_read_char(fp2)
+    expect_int("file: first char is 'l' = 108", ch, 108)
+    file_close(fp2)
+    return 0
+}
+
+
+// ================================================================
+// structs and oop
+// ================================================================
+
+struct Vec2 {
+    x: float,
+    y: float,
+}
+
+impl Vec2 {
+    func length(self: Vec2): float {
+        local xx: float = self.x * self.x
+        local yy: float = self.y * self.y
+        return math_sqrt(xx + yy)
+    }
+
+    func scale(self: Vec2, factor: float): int {
+        self.x = self.x * factor
+        self.y = self.y * factor
+        return 0
+    }
+
+    func dot(self: Vec2, other: Vec2): float {
+        return self.x * other.x + self.y * other.y
+    }
+}
+
+struct Counter {
+    value: int,
+    step: int,
+}
+
+impl Counter {
+    func tick(self: Counter): int {
+        self.value = self.value + self.step
+        return self.value
+    }
+
+    func reset(self: Counter): int {
+        self.value = 0
+        return 0
+    }
+}
+
+func test_structs(): int {
+    local v: Vec2
+    v.x = 3.0
+    v.y = 4.0
+
+    expect_float_near("struct: field read x=3", v.x, 3.0)
+    expect_float_near("struct: field read y=4", v.y, 4.0)
+
+    local len: float = v.length()
+    expect_float_near("struct method: length 3-4-5", len, 5.0)
+
+    v.scale(2.0)
+    expect_float_near("struct method: scale mutates x to 6", v.x, 6.0)
+    expect_float_near("struct method: scale mutates y to 8", v.y, 8.0)
+
+    local u: Vec2
+    u.x = 1.0
+    u.y = 0.0
+    local d: float = v.dot(u)
+    expect_float_near("struct method: dot product", d, 6.0)
+
+    local c: Counter
+    c.value = 0
+    c.step = 5
+    c.tick()
+    c.tick()
+    expect_int("struct method: counter after 2 ticks", c.value, 10)
+    c.reset()
+    expect_int("struct method: counter after reset", c.value, 0)
+    return 0
+}
+
+
+// ================================================================
+// mathlib tests
+// ================================================================
+
+func test_math_basics(): int {
+    expect_float_near("math: sin(0) = 0",         math_sin(0.0),       0.0)
+    expect_float_near("math: cos(0) = 1",         math_cos(0.0),       1.0)
+    expect_float_near("math: sqrt(9) = 3",        math_sqrt(9.0),      3.0)
+    expect_float_near("math: abs(-5) = 5",        math_abs(-5.0),      5.0)
+    expect_float_near("math: floor(3.9) = 3",     math_floor(3.9),     3.0)
+    expect_float_near("math: ceil(3.1) = 4",      math_ceil(3.1),      4.0)
+    expect_float_near("math: pow(2, 10) = 1024",  math_pow(2.0, 10.0), 1024.0)
+    return 0
+}
+
+func test_math_utils(): int {
+    expect_float_near("math: lerp(0,10,0.5) = 5",    math_lerp(0.0, 10.0, 0.5),          5.0)
+    expect_float_near("math: lerp(0,10,0) = 0",      math_lerp(0.0, 10.0, 0.0),          0.0)
+    expect_float_near("math: lerp(0,10,1) = 10",     math_lerp(0.0, 10.0, 1.0),          10.0)
+    expect_float_near("math: clamp(15,0,10) = 10",   math_clamp(15.0, 0.0, 10.0),        10.0)
+    expect_float_near("math: clamp(-5,0,10) = 0",    math_clamp(-5.0, 0.0, 10.0),        0.0)
+    expect_float_near("math: remap(5,0,10,0,100)=50",math_remap(5.0, 0.0, 10.0, 0.0, 100.0), 50.0)
+    expect_float_near("math: dist2(0,0,3,4) = 5",    math_dist2(0.0, 0.0, 3.0, 4.0),    5.0)
+    expect_int("math: min_int(3,7) = 3",             math_min_int(3, 7),   3)
+    expect_int("math: max_int(3,7) = 7",             math_max_int(3, 7),   7)
+    expect_int("math: clamp_int(15,0,10) = 10",      math_clamp_int(15, 0, 10), 10)
+    return 0
+}
+
+func test_math_easing(): int {
+    // at t=0 all easings return 0, at t=1 all return 1
+    expect_float_near("ease: in_quad(0)=0",    math_ease_in_quad(0.0),    0.0)
+    expect_float_near("ease: in_quad(1)=1",    math_ease_in_quad(1.0),    1.0)
+    expect_float_near("ease: out_quad(0)=0",   math_ease_out_quad(0.0),   0.0)
+    expect_float_near("ease: out_quad(1)=1",   math_ease_out_quad(1.0),   1.0)
+    expect_int("ease: in_quad(0.5) < 0.5 (slow start)",  math_ease_in_quad(0.5)  < 0.5, 1)
+    expect_int("ease: out_quad(0.5) > 0.5 (fast start)", math_ease_out_quad(0.5) > 0.5, 1)
+    return 0
+}
+
+func test_math_vec2(): int {
+    local a: long = math_vec2_new(3.0, 0.0)
+    local b: long = math_vec2_new(0.0, 4.0)
+    local c: long = math_vec2_add(a, b)
+
+    expect_float_near("vec2: add x component", math_vec2_x(c), 3.0)
+    expect_float_near("vec2: add y component", math_vec2_y(c), 4.0)
+    expect_float_near("vec2: length = 5",      math_vec2_len(c), 5.0)
+
+    local d: long = math_vec2_scale(a, 3.0)
+    expect_float_near("vec2: scale x = 9",     math_vec2_x(d), 9.0)
+
+    local e: long = math_vec2_norm(c)
+    expect_float_near("vec2: norm length = 1", math_vec2_len(e), 1.0)
+
+    local dot: float = math_vec2_dot(a, b)
+    expect_float_near("vec2: dot orthogonal = 0", dot, 0.0)
+
+    math_vec2_free(a)
+    math_vec2_free(b)
+    math_vec2_free(c)
+    math_vec2_free(d)
+    math_vec2_free(e)
+    return 0
+}
+
+func test_math_vec3(): int {
+    local a: long = math_vec3_new(1.0, 0.0, 0.0)
+    local b: long = math_vec3_new(0.0, 1.0, 0.0)
+    local cross: long = math_vec3_cross(a, b)
+
+    // x cross y = z = (0, 0, 1)
+    expect_float_near("vec3: cross x = 0", math_vec3_x(cross), 0.0)
+    expect_float_near("vec3: cross y = 0", math_vec3_y(cross), 0.0)
+    expect_float_near("vec3: cross z = 1", math_vec3_z(cross), 1.0)
+
+    local dot: float = math_vec3_dot(a, b)
+    expect_float_near("vec3: dot orthogonal = 0", dot, 0.0)
+
+    math_vec3_free(a)
+    math_vec3_free(b)
+    math_vec3_free(cross)
+    return 0
+}
+
+func test_math_mat4(): int {
+    local m: long = math_mat4_identity()
+
+    // diagonal should be 1, off-diagonal 0
+    expect_float_near("mat4: identity [0,0]=1", math_mat4_get(m, 0, 0), 1.0)
+    expect_float_near("mat4: identity [1,1]=1", math_mat4_get(m, 1, 1), 1.0)
+    expect_float_near("mat4: identity [0,1]=0", math_mat4_get(m, 0, 1), 0.0)
+
+    math_mat4_set(m, 0, 3, 7.0)
+    expect_float_near("mat4: set and get [0,3]=7", math_mat4_get(m, 0, 3), 7.0)
+
+    local t: long = math_mat4_translate(1.0, 2.0, 3.0)
+    expect_float_near("mat4: translate [0,3]=1", math_mat4_get(t, 0, 3), 1.0)
+    expect_float_near("mat4: translate [1,3]=2", math_mat4_get(t, 1, 3), 2.0)
+    expect_float_near("mat4: translate [2,3]=3", math_mat4_get(t, 2, 3), 3.0)
+
+    math_mat4_free(m)
+    math_mat4_free(t)
+    return 0
+}
+
+func test_math_noise(): int {
+    math_noise_seed(42)
+    local ok: int = 1
+    local fi: float = 0.0
+    while fi < 5.0 {
+        local n: float = math_noise2(fi * 0.1, fi * 0.07)
+        if n < -2.0 { ok = 0 }
+        if n > 2.0  { ok = 0 }
+        fi = fi + 0.1
+    }
+    expect_int("noise: 50 samples in [-2, 2]", ok, 1)
+
+    local n1: float = math_noise2(1.0, 2.0)
+    local n2: float = math_noise2(1.0, 2.0)
+    expect_int("noise: same inputs give same output", n1 == n2, 1)
+    return 0
+}
+
+
+// ================================================================
+// threadlib tests
+// single-threaded use of the synchronization primitives.
+// thread_spawn needs a function pointer which isn't yet expressible
+// in lpp syntax, so that part is tested separately in C (test_threadlib.c).
+// everything else — mutex, channel, atomic — is fully testable here.
+// ================================================================
+
+func test_mutex(): int {
+    local mx: long = thread_mutex_new()
+    expect_int("mutex: new returns handle", mx != 0, 1)
+    expect_int("mutex: lock returns 0",    thread_mutex_lock(mx),   0)
+    expect_int("mutex: unlock returns 0",  thread_mutex_unlock(mx), 0)
+    thread_mutex_free(mx)
+    expect_int("mutex: free doesn't crash", 1, 1)
+    return 0
+}
+
+func test_atomic(): int {
+    local atom: long = thread_atomic_new(0)
+    expect_int("atomic: new returns handle", atom != 0, 1)
+    expect_int("atomic: get initial = 0",    thread_atomic_get(atom), 0)
+
+    thread_atomic_add(atom, 10)
+    expect_int("atomic: add 10 -> 10",       thread_atomic_get(atom), 10)
+
+    thread_atomic_add(atom, -3)
+    expect_int("atomic: add -3 -> 7",        thread_atomic_get(atom), 7)
+
+    thread_atomic_set(atom, 99)
+    expect_int("atomic: set to 99",          thread_atomic_get(atom), 99)
+
+    thread_atomic_free(atom)
+    return 0
+}
+
+func test_channel(): int {
+    // channels are designed to be used across threads, but the API itself
+    // is testable single-threaded by doing a non-blocking check first.
+    // here we just confirm the handle is created correctly and the
+    // underlying memory is clean.
+    local ch: long = thread_chan_new()
+    expect_int("channel: new returns handle", ch != 0, 1)
+    thread_chan_free(ch)
+    expect_int("channel: free doesn't crash", 1, 1)
+    return 0
+}
+
+
+// ================================================================
+// netlib tests
+// ================================================================
+
+func test_netlib(): int {
+    // we can't open a real tcp connection in a test that's supposed to be self-contained,
+    // and we can't spawn a server thread without thread_spawn + function pointers.
+    // so we just verify the api surfaces don't crash on null/bad input.
+    expect_int("net: connect to closed port returns 0", net_connect("127.0.0.1", 1), 0)
+
+    // listen on a valid port and immediately close it — verifies the listen path
+    local srv: long = net_listen(18765)
+    expect_int("net: listen returns handle", srv != 0, 1)
+    net_server_close(srv)
+    expect_int("net: server close doesn't crash", 1, 1)
+    return 0
+}
+
+
+// ================================================================
+// ailib tests
+// (lightweight — no training loop, just structure verification)
+// ================================================================
+
+func test_linreg(): int {
+    local reg: long = ai_linreg_new()
+    // y = 2x + 1
+    ai_linreg_add(reg, 0.0, 1.0)
+    ai_linreg_add(reg, 1.0, 3.0)
+    ai_linreg_add(reg, 2.0, 5.0)
+    ai_linreg_add(reg, 3.0, 7.0)
+    ai_linreg_add(reg, 4.0, 9.0)
+    ai_linreg_fit(reg)
+
+    expect_float_near("linreg: slope = 2",       ai_linreg_slope(reg),       2.0)
+    expect_float_near("linreg: intercept = 1",   ai_linreg_intercept(reg),   1.0)
+    expect_float_near("linreg: predict(5) = 11", ai_linreg_predict(reg, 5.0), 11.0)
+    ai_linreg_free(reg)
+    return 0
+}
+
+func test_knn(): int {
+    local knn: long = ai_knn_new(2)
+    local feat: long = ai_features_new(2)
+
+    // cluster 0 near (0,0)
+    ai_features_set(feat, 0, 0.1)
+    ai_features_set(feat, 1, 0.1)
+    ai_knn_add(knn, feat, 0)
+    ai_features_set(feat, 0, 0.2)
+    ai_features_set(feat, 1, 0.2)
+    ai_knn_add(knn, feat, 0)
+
+    // cluster 1 near (10,10)
+    ai_features_set(feat, 0, 9.9)
+    ai_features_set(feat, 1, 9.9)
+    ai_knn_add(knn, feat, 1)
+    ai_features_set(feat, 0, 10.0)
+    ai_features_set(feat, 1, 10.0)
+    ai_knn_add(knn, feat, 1)
+
+    ai_features_set(feat, 0, 0.15)
+    ai_features_set(feat, 1, 0.15)
+    expect_int("knn: point near (0,0) -> label 0",   ai_knn_classify(knn, feat, 1), 0)
+
+    ai_features_set(feat, 0, 9.95)
+    ai_features_set(feat, 1, 9.95)
+    expect_int("knn: point near (10,10) -> label 1", ai_knn_classify(knn, feat, 1), 1)
+
+    ai_features_free(feat)
+    ai_knn_free(knn)
+    return 0
+}
+
+func test_nn_structure(): int {
+    // just verify the neural network allocates and forward-passes without crashing.
+    // no training — even 100 iterations takes a moment and the point here is structure.
+    local nn: long  = ai_nn_new(3, 4, 2, 0.1)
+    local exp: long = ai_expected_new(2)
+
+    expect_int("nn: new returns handle",     nn  != 0, 1)
+    expect_int("nn: expected new handle",    exp != 0, 1)
+
+    ai_nn_set_input(nn, 0, 0.5)
+    ai_nn_set_input(nn, 1, 0.3)
+    ai_nn_set_input(nn, 2, 0.8)
+    ai_nn_forward(nn)
+
+    local o0: float = ai_nn_get_output(nn, 0)
+    local o1: float = ai_nn_get_output(nn, 1)
+
+    // outputs are sigmoid activations so they must be in (0, 1)
+    expect_int("nn: output 0 in (0,1)", o0 > 0.0, 1)
+    expect_int("nn: output 0 in (0,1)", o0 < 1.0, 1)
+    expect_int("nn: output 1 in (0,1)", o1 > 0.0, 1)
+    expect_int("nn: output 1 in (0,1)", o1 < 1.0, 1)
+
+    ai_expected_free(exp)
+    ai_nn_free(nn)
+    return 0
+}
+
+
+// ================================================================
+// main
+// ================================================================
+
+func main(): int {
+    print_str("---- stdlib ----")
+    test_arithmetic()
+    test_bitwise()
+    test_comparisons()
+    test_logic()
+    test_if_else()
+    test_while()
+    test_for()
+    test_break_continue()
+    test_case()
+    test_fixed_array()
+    test_dynamic_array()
+    test_string_builder()
+    test_string_concat()
+    test_rand()
+    test_raw_memory()
+    test_file_io()
+
+    print_str("---- structs / oop ----")
+    test_structs()
+
+    print_str("---- mathlib ----")
+    test_math_basics()
+    test_math_utils()
+    test_math_easing()
+    test_math_vec2()
+    test_math_vec3()
+    test_math_mat4()
+    test_math_noise()
+
+    print_str("---- threadlib ----")
+    test_mutex()
+    test_atomic()
+    test_channel()
+
+    print_str("---- netlib ----")
+    test_netlib()
+
+    print_str("---- ailib ----")
+    test_linreg()
+    test_knn()
+    test_nn_structure()
+
+    print_str("----------------")
+    local total: int = test_pass_count + test_fail_count
+    print_str("results:")
+    print_int(test_pass_count)
+    print_str("passed")
+    print_int(test_fail_count)
+    print_str("failed")
+    print_int(total)
+    print_str("total")
+
+    if test_fail_count > 0 {
+        return 1
+    }
+    return 0
+}

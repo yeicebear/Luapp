@@ -1,0 +1,24 @@
+extern func ai_nn_new(input_size: int, hidden_size: int, output_size: int, lr: float): long
+extern func ai_nn_set_input(h: long, idx: int, val: float): int
+extern func ai_nn_forward(h: long): int
+extern func ai_nn_get_output(h: long, idx: int): float
+extern func ai_nn_train(h: long, expected_ptr: long): float
+extern func ai_nn_free(h: long): int
+extern func ai_expected_new(n: int): long
+extern func ai_expected_set(h: long, idx: int, val: float): int
+extern func ai_expected_free(h: long): int
+extern func ai_knn_new(n_features: int): long
+extern func ai_knn_add(h: long, features_ptr: long, label: int): int
+extern func ai_knn_classify(h: long, features_ptr: long, k: int): int
+extern func ai_knn_free(h: long): int
+extern func ai_features_new(n: int): long
+extern func ai_features_set(h: long, idx: int, val: float): int
+extern func ai_features_get(h: long, idx: int): float
+extern func ai_features_free(h: long): int
+extern func ai_linreg_new(): long
+extern func ai_linreg_add(h: long, x: float, y: float): int
+extern func ai_linreg_fit(h: long): int
+extern func ai_linreg_predict(h: long, x: float): float
+extern func ai_linreg_slope(h: long): float
+extern func ai_linreg_intercept(h: long): float
+extern func ai_linreg_free(h: long): int
