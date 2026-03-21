@@ -4,7 +4,11 @@ linkto "ailib"
 
 global test_pass_count: int = 0
 global test_fail_count: int = 0
-
+// let me clarify: THIS IS NOT AN LLM. IT's a small neural network
+// That tests a XOR gate, because OR worked.
+// You idiots (not the reader, im talking to someone else dw twin)
+// REALLY THOUGHT that i'd code a damn gemini in, what? 70 lines?
+// Retards.
 func expect(label: str, ok: int): int {
     if ok {
         print_str("[PASS] " + label)
@@ -17,7 +21,7 @@ func expect(label: str, ok: int): int {
 }
 
 func test_ai_nn_xor(): int {
-    print_str("--- Testing Neural Network (XOR) ---")
+    print_str("Testing Neural Network (XOR)")
     local nn: long = ai_nn_new(2, 4, 1, 0.5)
     local exp: long = ai_expected_new(1)
 
@@ -63,7 +67,7 @@ func test_ai_nn_xor(): int {
 
 func main(): int {
     test_ai_nn_xor()
-    print_str("----------------")
+    print_str("DONE!!!")
     print_str("Final Results:")
     print_int(test_pass_count)
     print_str("passed")
