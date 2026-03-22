@@ -1,8 +1,7 @@
 // gamelib.c
 // sdl2 canvas for making games. window, renderer, keyboard, mouse, text.
-// linkto "gamelib" gives you all of this. don't also linkto "std" — gamelib
-// intentionally does NOT duplicate any stdlib function. if you want print_int
-// or rand_int in a game, just linkto "std" too. they won't conflict.
+// linkto "gamelib" gives you all of this. gamelib has no overlap with std.
+// if you want print_int, rand_int, sleep_ms etc in a game, linkto "std" too.
 //
 // call canvas_init() first. always. if you call anything else first,
 // the renderer is null and everything will silently do nothing or crash.
@@ -24,10 +23,10 @@ int canvas_init(int w, int h) {
     SDL_Init(SDL_INIT_VIDEO);
     TTF_Init();
     win = SDL_CreateWindow("lpp",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        w, h, SDL_WINDOW_SHOWN);
+                           SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                           w, h, SDL_WINDOW_SHOWN);
     ren = SDL_CreateRenderer(win, -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+                             SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     running = 1;
     return 0;
 }
@@ -117,7 +116,7 @@ int canvas_poll(void) {
     SDL_Event e;
     while (SDL_PollEvent(&e))
         if (e.type == SDL_QUIT) running = 0;
-    return running;
+        return running;
 }
 
 // check if a key is held down. key codes:
