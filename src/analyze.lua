@@ -1,6 +1,6 @@
 -- analyze.lua  |  sector_8:semantic_check
 -- walks the ast and catches usage errors before codegen sees them.
--- not a type checker — lpp trusts you on types.
+-- not a type checker - lpp trusts you on types.
 -- catches: undeclared variables, unknown functions, undefined operators.
 
 local valid_binary_ops = {
@@ -14,7 +14,7 @@ local known_funcs   = {}
 local known_structs = {}
 local known_globals = {}
 
--- print is a built-in alias for print_int — never needs an extern declaration.
+-- print is a built-in alias for print_int - never needs an extern declaration.
 local builtins = { print=1 }
 
 local function scope_push()  scope_stack[#scope_stack+1] = {}         end
@@ -60,7 +60,7 @@ local function check_xpr(n)
 
     elseif k=="call" then
         if not known_funcs[n.fname] and not builtins[n.fname] then
-            die("'"..n.fname.."' — unknown function (missing extern or linkto?)", ln)
+            die("'"..n.fname.."' - unknown function (missing extern or linkto?)", ln)
         end
         for _, arg in ipairs(n.args) do check_xpr(arg) end
 
@@ -68,7 +68,7 @@ local function check_xpr(n)
         for _, arg in ipairs(n.args) do check_xpr(arg) end
 
     else
-        die("check_xpr: unhandled node '"..tostring(k).."' — compiler bug", ln)
+        die("check_xpr: unhandled node '"..tostring(k).."' - compiler bug", ln)
     end
 end
 
@@ -84,7 +84,7 @@ local function walk_block(block)
 
         elseif k=="assign" then
             if not scope_lookup(s.vname) then
-                die("'"..s.vname.."' assigned before declaration — use 'local' first", ln)
+                die("'"..s.vname.."' assigned before declaration - use 'local' first", ln)
             end
             check_xpr(s.rhs)
 
@@ -126,7 +126,7 @@ local function walk_block(block)
             if s.default then walk_block(s.default) end
 
         else
-            die("walk_block: unhandled stmt '"..tostring(k).."' — compiler bug")
+            die("walk_block: unhandled stmt '"..tostring(k).."' - compiler bug")
         end
     end
     scope_pop()
@@ -134,7 +134,7 @@ end
 
 local function analyze(prog)
     if not prog or prog.kind ~= "prog" then
-        die("analyze got non-program node — something upstream broke")
+        die("analyze got non-program node - something upstream broke")
     end
 
     scope_stack   = {}

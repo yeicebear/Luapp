@@ -70,6 +70,9 @@ local lib_registry = {
     ["ailib"]     = { cfile="ailib.c",     lpplib="ailib.lpplib",     sdl=false, pthread=false, math=true  },
 }
 
+-- stdlib is an alias people commonly try
+lib_registry["stdlib"] = nil
+
 -- strip qbe's linux-specific asm directives so mingw-gcc accepts the output
 local function patch_asm_for_windows(path)
     local f   = io.open(path, "r"); if not f then return end

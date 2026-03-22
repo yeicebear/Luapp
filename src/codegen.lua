@@ -6,7 +6,7 @@
 -- qbe type legend:
 --   w = 32-bit word     (int, bool, char)
 --   l = 64-bit integer  (long, str, any pointer)
---   d = 64-bit double   (float — qbe has no f32)
+--   d = 64-bit double   (float - qbe has no f32)
 --
 -- all locals are alloca'd at function entry regardless of declaration site.
 -- short-circuit && / || spill through a stack slot; no phi nodes.
@@ -249,7 +249,7 @@ emit_xpr = function(buf, node, dest)
         if not fdef then
             local names = {}
             for _, f in ipairs(sdef.fields) do names[#names+1] = f.name end
-            die_at("no field '"..node.field.."' on '"..sname.."' — have: "..table.concat(names,", "), node)
+            die_at("no field '"..node.field.."' on '"..sname.."' - have: "..table.concat(names,", "), node)
         end
         local t_ptr = fresh_tmp("fptr")
         local fqt   = scalar_qtype(fdef.ftype)
@@ -421,7 +421,7 @@ emit_xpr = function(buf, node, dest)
             dest, call_rt, callee, table.concat(call_args, ", ")))
 
     else
-        die_at("unhandled expr '"..tostring(k).."' — compiler bug", node)
+        die_at("unhandled expr '"..tostring(k).."' - compiler bug", node)
     end
 end
 
@@ -505,7 +505,7 @@ emit_stmt = function(buf, s, brk_lbl, cont_lbl)
         if not fdef then
             local names = {}
             for _, f in ipairs(sdef.fields) do names[#names+1] = f.name end
-            die_at("no field '"..s.field.."' on '"..sname.."' — have: "..table.concat(names,", "), s)
+            die_at("no field '"..s.field.."' on '"..sname.."' - have: "..table.concat(names,", "), s)
         end
         local t_ptr = fresh_tmp("fptr"); local t_val = fresh_tmp("fval")
         local fqt   = scalar_qtype(fdef.ftype)
@@ -617,7 +617,7 @@ emit_stmt = function(buf, s, brk_lbl, cont_lbl)
         push_line(buf, l_done)
 
     else
-        die_at("unhandled stmt '"..tostring(k).."' — compiler bug", s)
+        die_at("unhandled stmt '"..tostring(k).."' - compiler bug", s)
     end
     return false
 end

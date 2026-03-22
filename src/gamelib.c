@@ -138,7 +138,18 @@ int canvas_key(int k) {
         case 7:  sc = SDL_SCANCODE_W;      break;
         case 8:  sc = SDL_SCANCODE_S;      break;
         case 9:  sc = SDL_SCANCODE_A;      break;
-        case 10: sc = SDL_SCANCODE_D;      break;
+        case 10: sc = SDL_SCANCODE_D;         break;
+        case 11: sc = SDL_SCANCODE_1;         break;
+        case 12: sc = SDL_SCANCODE_2;         break;
+        case 13: sc = SDL_SCANCODE_3;         break;
+        case 14: sc = SDL_SCANCODE_4;         break;
+        case 15: sc = SDL_SCANCODE_5;         break;
+        case 16: sc = SDL_SCANCODE_6;         break;
+        case 17: sc = SDL_SCANCODE_7;         break;
+        case 18: sc = SDL_SCANCODE_8;         break;
+        case 19: sc = SDL_SCANCODE_9;         break;
+        case 20: sc = SDL_SCANCODE_0;         break;
+        case 21: sc = SDL_SCANCODE_BACKSPACE; break;
         default: return 0;
     }
     return ks[sc] ? 1 : 0;

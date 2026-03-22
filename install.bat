@@ -87,11 +87,21 @@ echo installing files...
 mkdir "%LPP_BIN%" 2>nul
 mkdir "%LPP_LIB%" 2>nul
 
-copy /Y "%LPP_TMP%\out\lpp.exe" "%LPP_BIN%" >nul
-copy /Y "%LPP_TMP%\out\qbe.exe" "%LPP_BIN%" >nul
-copy /Y "%LPP_TMP%\out\runtime.c" "%LPP_LIB%" >nul
-copy /Y "%LPP_TMP%\out\stdlib.c" "%LPP_LIB%" >nul
-copy /Y "%LPP_TMP%\out\gamelib.c" "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\lpp.exe"          "%LPP_BIN%" >nul
+copy /Y "%LPP_TMP%\out\qbe.exe"          "%LPP_BIN%" >nul
+copy /Y "%LPP_TMP%\out\runtime.c"        "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\stdlib.c"         "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\stdlib.lpplib"    "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\gamelib.c"        "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\gamelib.lpplib"   "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\mathlib.c"        "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\mathlib.lpplib"   "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\threadlib.c"      "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\threadlib.lpplib" "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\netlib.c"         "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\netlib.lpplib"    "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\ailib.c"          "%LPP_LIB%" >nul
+copy /Y "%LPP_TMP%\out\ailib.lpplib"     "%LPP_LIB%" >nul
 
 for /f "tokens=2,*" %%A in ('reg query HKCU\Environment /v PATH 2^>nul') do set CURRENT_PATH=%%B
 
