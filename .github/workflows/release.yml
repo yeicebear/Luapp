@@ -119,18 +119,18 @@ jobs:
           name: luastatic-c
           path: src/
       - name: Build QBE windooo
-        shell: C:\msys64\usr\bin\bash.exe -lc "{0}"
+        shell: C:\msys64\usr\bin\bash.exe --login --norc -eo pipefail "{0}"
         run: make -C qbe
       - name: Build Lua windooo
-        shell: C:\msys64\usr\bin\bash.exe -lc "{0}"
+        shell: C:\msys64\usr\bin\bash.exe --login --norc -eo pipefail "{0}"
         run: make -C lua-5.4.7 mingw
       - name: Build lpp windooo
-        shell: C:\msys64\usr\bin\bash.exe -lc "{0}"
+        shell: C:\msys64\usr\bin\bash.exe --login --norc -eo pipefail "{0}"
         run: |
           gcc -o lpp.exe src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm
       - name: Package
-        shell: C:\msys64\usr\bin\bash.exe -lc "{0}"
+        shell: C:\msys64\usr\bin\bash.exe --login --norc -eo pipefail "{0}"
         run: |
           mkdir -p dist
           cp lpp.exe               dist/
