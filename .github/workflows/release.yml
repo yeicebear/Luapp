@@ -108,33 +108,29 @@ jobs:
     needs: build-linux
     steps:
       - uses: actions/checkout@v4
-      - name: Install MSYS2 for windooo
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          install: >-
-            mingw-w64-x86_64-gcc
-            make
-            git
-            zip
+      - name: Add MSYS2 to PATH
+        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install deps
+        shell: cmd
+        run: C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-gcc make zip"
       - name: Download main.luastatic.c from linux build
         uses: actions/download-artifact@v4
         with:
           name: luastatic-c
           path: src/
       - name: Build QBE windooo
-        shell: msys2 {0}
+        shell: C:\msys64\usr\bin\bash.exe -lc "{0}"
         run: make -C qbe
       - name: Build Lua windooo
-        shell: msys2 {0}
+        shell: C:\msys64\usr\bin\bash.exe -lc "{0}"
         run: make -C lua-5.4.7 mingw
       - name: Build lpp windooo
-        shell: msys2 {0}
+        shell: C:\msys64\usr\bin\bash.exe -lc "{0}"
         run: |
           gcc -o lpp.exe src/main.luastatic.c src/runtime.c \
             -Ilua-5.4.7/src lua-5.4.7/src/liblua.a -lm
       - name: Package
-        shell: msys2 {0}
+        shell: C:\msys64\usr\bin\bash.exe -lc "{0}"
         run: |
           mkdir -p dist
           cp lpp.exe               dist/
@@ -153,8 +149,7 @@ jobs:
           cp src/ailib.c           dist/
           cp src/ailib.lpplib      dist/
           cp install.bat           dist/
-          cd dist
-          zip ../lpp-windows-x86_64.zip ./*
+          cd dist && zip ../lpp-windows-x86_64.zip ./*
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
