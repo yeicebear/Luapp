@@ -129,13 +129,13 @@ do
         elseif a=="--target"  then target     = argv[i+1]; i=i+2
         elseif a=="--run" or a=="-r"        then run_after=true;  i=i+1
         elseif a=="--verbose" or a=="-v"    then verbose=true;    i=i+1
-        elseif a=="--version" then print("lpp 0.5.0"); os.exit(0)
+        elseif a=="--version" then print("lpp 0.8.0"); os.exit(0)
         elseif a=="--conserve-artifacts" then conserve_artifacts=true; i=i+1
         elseif a=="--license" then
             print("MIT License\nCopyright (c) 2026 yeicebear/icebearunreal")
             os.exit(0)
         elseif a=="--help" then
-            print("lpp — compiled language targeting QBE IR")
+            print("lpp is a blazingly fast programming language.")
             print("usage: lpp <file.lpp> [flags]")
             print("")
             print("  -o <name>        output binary")
