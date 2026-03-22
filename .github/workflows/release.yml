@@ -30,10 +30,20 @@ jobs:
           mkdir -p dist
           cp lpp dist/
           cp qbe/obj/qbe dist/
-          cp src/runtime.c dist/
-          cp src/stdlib.c dist/
-          cp src/gamelib.c dist/
-          tar -czf lpp-linux-x86_64.tar.gz -C dist lpp qbe runtime.c stdlib.c gamelib.c
+          cp src/runtime.c        dist/
+          cp src/stdlib.c         dist/
+          cp src/stdlib.lpplib    dist/
+          cp src/gamelib.c        dist/
+          cp src/gamelib.lpplib   dist/
+          cp src/mathlib.c        dist/
+          cp src/mathlib.lpplib   dist/
+          cp src/threadlib.c      dist/
+          cp src/threadlib.lpplib dist/
+          cp src/netlib.c         dist/
+          cp src/netlib.lpplib    dist/
+          cp src/ailib.c          dist/
+          cp src/ailib.lpplib     dist/
+          tar -czf lpp-linux-x86_64.tar.gz -C dist .
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
@@ -74,10 +84,20 @@ jobs:
           mkdir -p dist
           cp lpp dist/
           cp qbe/obj/qbe dist/
-          cp src/runtime.c dist/
-          cp src/stdlib.c dist/
-          cp src/gamelib.c dist/
-          tar -czf lpp-darwin-arm64.tar.gz -C dist lpp qbe runtime.c stdlib.c gamelib.c
+          cp src/runtime.c        dist/
+          cp src/stdlib.c         dist/
+          cp src/stdlib.lpplib    dist/
+          cp src/gamelib.c        dist/
+          cp src/gamelib.lpplib   dist/
+          cp src/mathlib.c        dist/
+          cp src/mathlib.lpplib   dist/
+          cp src/threadlib.c      dist/
+          cp src/threadlib.lpplib dist/
+          cp src/netlib.c         dist/
+          cp src/netlib.lpplib    dist/
+          cp src/ailib.c          dist/
+          cp src/ailib.lpplib     dist/
+          tar -czf lpp-darwin-arm64.tar.gz -C dist .
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
@@ -117,14 +137,24 @@ jobs:
         shell: msys2 {0}
         run: |
           mkdir -p dist
-          cp lpp.exe dist/
-          cp qbe/obj/qbe.exe dist/
-          cp src/runtime.c dist/
-          cp src/stdlib.c dist/
-          cp src/gamelib.c dist/
-          cp install.bat dist/
+          cp lpp.exe               dist/
+          cp qbe/obj/qbe.exe       dist/
+          cp src/runtime.c         dist/
+          cp src/stdlib.c          dist/
+          cp src/stdlib.lpplib     dist/
+          cp src/gamelib.c         dist/
+          cp src/gamelib.lpplib    dist/
+          cp src/mathlib.c         dist/
+          cp src/mathlib.lpplib    dist/
+          cp src/threadlib.c       dist/
+          cp src/threadlib.lpplib  dist/
+          cp src/netlib.c          dist/
+          cp src/netlib.lpplib     dist/
+          cp src/ailib.c           dist/
+          cp src/ailib.lpplib      dist/
+          cp install.bat           dist/
           cd dist
-          zip ../lpp-windows-x86_64.zip lpp.exe qbe.exe runtime.c stdlib.c gamelib.c install.bat
+          zip ../lpp-windows-x86_64.zip ./*
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
