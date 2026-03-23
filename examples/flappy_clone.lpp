@@ -1,0 +1,108 @@
+linkto "gamelib"
+linkto "std"
+
+func main(): int {
+    canvas_init(800, 600)
+    // canvas_font("/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf", 22)
+    canvas_font("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", 22)
+
+    local bird_y: int = 300
+    local bird_vel: int = 0
+
+    local gravity: int = 1
+    local jump: int = -12
+
+    local pipe_x: int = 800
+    local gap_y: int = rand_int(150, 450)
+
+    local score: int = 0
+    local alive: int = 1
+
+    local sp_prev: int = 0
+
+    while canvas_poll() {
+        canvas_clear(30, 30, 40)
+
+        local sp: int = canvas_key(4)
+        local esc: int = canvas_key(5)
+
+        if esc {
+            break
+        }
+
+        if sp != sp_prev {
+            if sp {
+                if alive {
+                    bird_vel = jump
+                } else {
+                    bird_y = 300
+                    bird_vel = 0
+                    pipe_x = 800
+                    gap_y = rand_int(150, 450)
+                    score = 0
+                    alive = 1
+                }
+            }
+            sp_prev = sp
+        }
+
+        if alive {
+            bird_vel = bird_vel + gravity
+            bird_y = bird_y + bird_vel
+
+            pipe_x = pipe_x - 5
+
+            if pipe_x < -80 {
+                pipe_x = 800
+                gap_y = rand_int(150, 450)
+                score = score + 1
+            }
+
+            local bird_x: int = 120
+            local bird_w: int = 40
+            local bird_h: int = 40
+
+            local gap_size: int = 160
+
+            if bird_x + bird_w > pipe_x {
+                if bird_x < pipe_x + 80 {
+                    if bird_y < gap_y - gap_size / 2 {
+                        alive = 0
+                    }
+                    if bird_y + bird_h > gap_y + gap_size / 2 {
+                        alive = 0
+                    }
+                }
+            }
+
+            if bird_y < 0 { alive = 0 }
+            if bird_y > 560 { alive = 0 }
+        }
+
+        canvas_color(255, 220, 60)
+        canvas_rect(120, bird_y, 40, 40)
+
+        canvas_color(80, 200, 120)
+
+        local gap_size: int = 160
+
+        canvas_rect(pipe_x, 0, 80, gap_y - gap_size / 2)
+        canvas_rect(pipe_x, gap_y + gap_size / 2, 80, 600)
+
+        canvas_text(20, 20, 200, 200, 200, "score:")
+        canvas_int(100, 20, 255, 255, 255, score)
+
+        if alive == 0 {
+            canvas_color(120, 40, 40)
+            canvas_rect(200, 220, 400, 100)
+            canvas_text(240, 250, 255, 200, 200, "game over")
+            canvas_text(240, 280, 200, 200, 200, "press SPACE to restart")
+        }
+
+        canvas_present()
+        sleep_ms(16)
+    }
+
+    canvas_quit()
+    return 0
+}
