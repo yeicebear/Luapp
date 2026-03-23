@@ -25,6 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/yeicebear/Luapp/main/install.sh
 # Join our Discord!
 https://discord.gg/Ksn3N9vaAE
 
+# Example LUA++ Creation: Flappy Bird clone (in examples/flappy_clone.lpp)
 https://github.com/user-attachments/assets/1110057d-48db-4630-a566-9f7d36e3a50c
 
 
